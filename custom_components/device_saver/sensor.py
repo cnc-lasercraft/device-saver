@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorEntity
@@ -47,19 +46,27 @@ class DeviceSaverDownDevicesSensor(SensorEntity):
     @property
     def native_value(self) -> str:
         data = self.coordinator.data or {}
-        down = [device_id for device_id, h in data.items() if h.down]
+        down = [
+            f"{h.device_name} ({h.tier}, {h.timeout}m)"
+            for h in data.values()
+            if h.down
+        ]
         return ", ".join(down) if down else ""
 
     @property
     def extra_state_attributes(self):
         data = self.coordinator.data or {}
+        # nice structured attributes for dashboards/templating
         return {
-            device_id: {
+            h.device_id: {
+                "name": h.device_name,
+                "tier": h.tier,
                 "down": h.down,
                 "reason": h.reason,
+                "timeout_minutes": h.timeout,
                 "last_ok": h.last_ok.isoformat() if h.last_ok else None,
             }
-            for device_id, h in data.items()
+            for h in data.values()
         }
 
     async def async_update(self) -> None:
