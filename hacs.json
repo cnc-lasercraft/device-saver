@@ -1,1 +1,7 @@
-
+{
+  "name": "Device Saver",
+  "content_in_root": false,
+  "domains": ["device_saver"],
+  "country": "all",
+  "homeassistant": "2024.6.0"
+}
