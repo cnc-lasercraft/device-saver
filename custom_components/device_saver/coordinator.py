@@ -130,55 +130,57 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
         if new_state and new_state.state not in STATE_BAD:
             self._last_ok[ent.device_id] = dt_util.utcnow()
 
-    async def _async_update_data(self) -> dict[str, DeviceHealth]:
-        watched = self._watched_devices()
-        now = dt_util.utcnow()
+async def _async_update_data(self) -> dict[str, DeviceHealth]:
+    watched = self._watched_devices()
+    now = dt_util.utcnow()
 
-        data: dict[str, DeviceHealth] = {}
+    data: dict[str, DeviceHealth] = {}
 
-        for device_id in watched:
-            timeout = self._timeout_for_device(device_id)
-            timeout_min = self._timeout_minutes_for_device(device_id)
+    for device_id in watched:
+        timeout = self._timeout_for_device(device_id)
+        timeout_min = self._timeout_minutes_for_device(device_id)
 
-            entity_ids = self._device_entity_ids(device_id)
+        # ✅ Grace: beim ersten Auftauchen "Startpunkt" setzen
+        if device_id not in self._last_ok:
+            self._last_ok[device_id] = now
 
-            if not entity_ids:
-                down = True
-                reason = "no_entities"
+        entity_ids = self._device_entity_ids(device_id)
+
+        if not entity_ids:
+            # auch hier: nicht sofort alarmieren, sondern erst nach Timeout
+            down = (now - self._last_ok[device_id]) > timeout
+            reason = "no_entities_timeout" if down else "no_entities_waiting"
+        else:
+            states = [self.hass.states.get(eid) for eid in entity_ids]
+            good = [s for s in states if s and s.state not in STATE_BAD]
+
+            if good:
+                down = False
+                reason = "ok"
+                # last_ok bleibt (oder wird via Event Handler aktualisiert)
+                self._last_ok[device_id] = self._last_ok.get(device_id, now)
             else:
-                states = [self.hass.states.get(eid) for eid in entity_ids]
-                good = [s for s in states if s and s.state not in STATE_BAD]
+                # alle bad -> erst nach Timeout down
+                down = (now - self._last_ok[device_id]) > timeout
+                reason = "timeout" if down else "waiting"
 
-                if good:
-                    down = False
-                    reason = "ok"
-                    self._last_ok[device_id] = self._last_ok.get(device_id, now)
-                else:
-                    last_ok = self._last_ok.get(device_id)
-                    if last_ok is None:
-                        down = True
-                        reason = "never_ok"
-                    else:
-                        down = (now - last_ok) > timeout
-                        reason = "timeout" if down else "waiting"
+        last_ok = self._last_ok.get(device_id)
+        health = DeviceHealth(
+            device_id=device_id,
+            down=down,
+            reason=reason,
+            last_ok=last_ok,
+            timeout=timeout_min,
+        )
+        data[device_id] = health
 
-            last_ok = self._last_ok.get(device_id)
-            health = DeviceHealth(
-                device_id=device_id,
-                down=down,
-                reason=reason,
-                last_ok=last_ok,
-                timeout=timeout_min,
-            )
-            data[device_id] = health
+        prev = self._down_state.get(device_id, False)
+        if down != prev:
+            self._down_state[device_id] = down
+            await self._notify_transition(device_id, down, health)
 
-            # transitions -> notifications
-            prev = self._down_state.get(device_id, False)
-            if down != prev:
-                self._down_state[device_id] = down
-                await self._notify_transition(device_id, down, health)
+    return data
 
-        return data
 
     async def _notify_transition(self, device_id: str, down: bool, health: DeviceHealth) -> None:
         name = self._device_name(device_id)
