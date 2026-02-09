@@ -47,7 +47,7 @@ class DeviceSaverDownDevicesSensor(SensorEntity):
     def native_value(self) -> str:
         data = self.coordinator.data or {}
         down = [
-            f"{h.device_name} ({h.tier}, {h.timeout}m)"
+            f"{h.device_name} ({h.tier}, {h.timeout_label})"
             for h in data.values()
             if h.down
         ]
@@ -56,17 +56,27 @@ class DeviceSaverDownDevicesSensor(SensorEntity):
     @property
     def extra_state_attributes(self):
         data = self.coordinator.data or {}
-        # nice structured attributes for dashboards/templating
-        return {
-            h.device_id: {
+
+        all_items = [
+            {
+                "device_id": h.device_id,
                 "name": h.device_name,
                 "tier": h.tier,
                 "down": h.down,
                 "reason": h.reason,
-                "timeout_minutes": h.timeout,
+                "timeout_minutes": h.timeout_minutes,
+                "timeout": h.timeout_label,
                 "last_ok": h.last_ok.isoformat() if h.last_ok else None,
             }
             for h in data.values()
+        ]
+
+        down_items = [x for x in all_items if x["down"]]
+
+        return {
+            "devices": all_items,        # full list (array)
+            "down": down_items,          # only down (array)
+            "down_count": len(down_items)
         }
 
     async def async_update(self) -> None:
