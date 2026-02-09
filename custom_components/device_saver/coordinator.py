@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, callback, Event
+from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
@@ -22,6 +23,8 @@ from .const import (
     DEFAULT_NOTIFY_RECOVERED,
     STATE_BAD,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -38,7 +41,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(
             hass,
-            logger=None,
+            logger=LOGGER,  # ✅ FIX: must not be None
             name=f"{DOMAIN}_{entry.entry_id}",
             update_interval=timedelta(seconds=30),
         )
@@ -48,7 +51,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
         self._dr = dr.async_get(hass)
         self._er = er.async_get(hass)
 
-        self._unsub = None
+        self._unsub_state_changed = None
         self._last_ok: dict[str, dt_util.dt.datetime] = {}
         self._down_state: dict[str, bool] = {}
 
@@ -71,7 +74,6 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
         return dev.name_by_user or dev.name or device_id
 
     def _device_entity_ids(self, device_id: str) -> list[str]:
-        # Entities belonging to this device_id
         return [
             ent.entity_id
             for ent in self._er.entities.values()
@@ -79,14 +81,18 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
         ]
 
     async def async_config_entry_first_refresh(self) -> None:
-        # Subscribe to all state changes; filter inside callback to watched devices.
-        if self._unsub is None:
-            self._unsub = async_track_state_change_event(self.hass, [], self._handle_state_event)
+        # ✅ Robust: listen to all state changes, filter ourselves
+        if self._unsub_state_changed is None:
+            self._unsub_state_changed = self.hass.bus.async_listen(
+                EVENT_STATE_CHANGED, self._handle_state_changed
+            )
+
         await super().async_config_entry_first_refresh()
 
     @callback
-    def _handle_state_event(self, event) -> None:
+    def _handle_state_changed(self, event: Event) -> None:
         watched = set(self._watched_devices())
+
         entity_id = event.data.get("entity_id")
         if not entity_id:
             return
@@ -119,7 +125,6 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                 if good:
                     down = False
                     reason = "ok"
-                    # initialize last_ok if not present
                     self._last_ok[device_id] = self._last_ok.get(device_id, now)
                 else:
                     last_ok = self._last_ok.get(device_id)
@@ -134,7 +139,6 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
             health = DeviceHealth(device_id=device_id, down=down, reason=reason, last_ok=last_ok)
             data[device_id] = health
 
-            # transitions -> notifications
             prev = self._down_state.get(device_id, False)
             if down != prev:
                 self._down_state[device_id] = down
@@ -158,9 +162,10 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                 blocking=False,
             )
             await self._maybe_notify(notify_service, "Device Saver", msg)
-
-            self.hass.bus.async_fire("device_saver_device_down", {"device_id": device_id, "device_name": name, "reason": health.reason})
-
+            self.hass.bus.async_fire(
+                "device_saver_device_down",
+                {"device_id": device_id, "device_name": name, "reason": health.reason},
+            )
         else:
             await self.hass.services.async_call(
                 "persistent_notification",
@@ -172,7 +177,10 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                 msg = f"Gerät **{name}** ist wieder erreichbar."
                 await self._maybe_notify(notify_service, "Device Saver", msg)
 
-            self.hass.bus.async_fire("device_saver_device_recovered", {"device_id": device_id, "device_name": name})
+            self.hass.bus.async_fire(
+                "device_saver_device_recovered",
+                {"device_id": device_id, "device_name": name},
+            )
 
     async def _maybe_notify(self, notify_service: str, title: str, message: str) -> None:
         if not notify_service:
@@ -181,4 +189,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
             domain, service = notify_service.split(".", 1)
         else:
             domain, service = "notify", notify_service
-        await self.hass.services.async_call(domain, service, {"title": title, "message": message}, blocking=False)
+
+        await self.hass.services.async_call(
+            domain, service, {"title": title, "message": message}, blocking=False
+        )
