@@ -15,11 +15,14 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
-    CONF_DEVICES,
-    CONF_TIMEOUT_MIN,
+    CONF_DEVICES_CRIT,
+    CONF_DEVICES_NORM,
+    CONF_DEVICES_SLOW,
+    TIMEOUT_CRIT,
+    TIMEOUT_NORM,
+    TIMEOUT_SLOW,
     CONF_NOTIFY_SERVICE,
     CONF_NOTIFY_RECOVERED,
-    DEFAULT_TIMEOUT_MIN,
     DEFAULT_NOTIFY_RECOVERED,
     STATE_BAD,
 )
@@ -33,15 +36,16 @@ class DeviceHealth:
     down: bool
     reason: str
     last_ok: dt_util.dt.datetime | None
+    timeout: int  # minutes
 
 
 class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
-    """Tracks health of selected devices."""
+    """Tracks health of selected devices (tiered timeouts)."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(
             hass,
-            logger=LOGGER,  # ✅ FIX: must not be None
+            logger=LOGGER,
             name=f"{DOMAIN}_{entry.entry_id}",
             update_interval=timedelta(seconds=30),
         )
@@ -60,12 +64,32 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
             return self.entry.options[key]
         return self.entry.data.get(key, default)
 
-    def _watched_devices(self) -> list[str]:
-        return list(self._cfg(CONF_DEVICES, []))
+    def _devices_by_tier(self) -> tuple[set[str], set[str], set[str]]:
+        crit = set(self._cfg(CONF_DEVICES_CRIT, []))
+        norm = set(self._cfg(CONF_DEVICES_NORM, []))
+        slow = set(self._cfg(CONF_DEVICES_SLOW, []))
+        return crit, norm, slow
 
-    def _timeout(self) -> timedelta:
-        minutes = int(self._cfg(CONF_TIMEOUT_MIN, DEFAULT_TIMEOUT_MIN))
-        return timedelta(minutes=minutes)
+    def _watched_devices(self) -> set[str]:
+        crit, norm, slow = self._devices_by_tier()
+        return crit | norm | slow
+
+    def _timeout_for_device(self, device_id: str) -> timedelta:
+        crit, norm, slow = self._devices_by_tier()
+        if device_id in crit:
+            return timedelta(minutes=TIMEOUT_CRIT)
+        if device_id in slow:
+            return timedelta(minutes=TIMEOUT_SLOW)
+        # default: normal (also if explicitly in norm)
+        return timedelta(minutes=TIMEOUT_NORM)
+
+    def _timeout_minutes_for_device(self, device_id: str) -> int:
+        crit, norm, slow = self._devices_by_tier()
+        if device_id in crit:
+            return int(TIMEOUT_CRIT)
+        if device_id in slow:
+            return int(TIMEOUT_SLOW)
+        return int(TIMEOUT_NORM)
 
     def _device_name(self, device_id: str) -> str:
         dev = self._dr.devices.get(device_id)
@@ -74,6 +98,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
         return dev.name_by_user or dev.name or device_id
 
     def _device_entity_ids(self, device_id: str) -> list[str]:
+        # Entities belonging to this device_id
         return [
             ent.entity_id
             for ent in self._er.entities.values()
@@ -81,7 +106,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
         ]
 
     async def async_config_entry_first_refresh(self) -> None:
-        # ✅ Robust: listen to all state changes, filter ourselves
+        # Listen to all state changes, filter ourselves (robust across HA versions)
         if self._unsub_state_changed is None:
             self._unsub_state_changed = self.hass.bus.async_listen(
                 EVENT_STATE_CHANGED, self._handle_state_changed
@@ -91,7 +116,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
 
     @callback
     def _handle_state_changed(self, event: Event) -> None:
-        watched = set(self._watched_devices())
+        watched = self._watched_devices()
 
         entity_id = event.data.get("entity_id")
         if not entity_id:
@@ -107,12 +132,14 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
 
     async def _async_update_data(self) -> dict[str, DeviceHealth]:
         watched = self._watched_devices()
-        timeout = self._timeout()
         now = dt_util.utcnow()
 
         data: dict[str, DeviceHealth] = {}
 
         for device_id in watched:
+            timeout = self._timeout_for_device(device_id)
+            timeout_min = self._timeout_minutes_for_device(device_id)
+
             entity_ids = self._device_entity_ids(device_id)
 
             if not entity_ids:
@@ -136,9 +163,16 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                         reason = "timeout" if down else "waiting"
 
             last_ok = self._last_ok.get(device_id)
-            health = DeviceHealth(device_id=device_id, down=down, reason=reason, last_ok=last_ok)
+            health = DeviceHealth(
+                device_id=device_id,
+                down=down,
+                reason=reason,
+                last_ok=last_ok,
+                timeout=timeout_min,
+            )
             data[device_id] = health
 
+            # transitions -> notifications
             prev = self._down_state.get(device_id, False)
             if down != prev:
                 self._down_state[device_id] = down
@@ -151,10 +185,16 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
         notif_id = f"{DOMAIN}_{self.entry.entry_id}_{device_id}"
 
         notify_service: str = (self._cfg(CONF_NOTIFY_SERVICE, "") or "").strip()
-        notify_recovered: bool = bool(self._cfg(CONF_NOTIFY_RECOVERED, DEFAULT_NOTIFY_RECOVERED))
+        notify_recovered: bool = bool(
+            self._cfg(CONF_NOTIFY_RECOVERED, DEFAULT_NOTIFY_RECOVERED)
+        )
 
         if down:
-            msg = f"Gerät **{name}** reagiert nicht mehr. (Grund: {health.reason})"
+            msg = (
+                f"Gerät **{name}** reagiert nicht mehr.\n"
+                f"- Grund: {health.reason}\n"
+                f"- Timeout: {health.timeout} min"
+            )
             await self.hass.services.async_call(
                 "persistent_notification",
                 "create",
@@ -162,10 +202,17 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                 blocking=False,
             )
             await self._maybe_notify(notify_service, "Device Saver", msg)
+
             self.hass.bus.async_fire(
                 "device_saver_device_down",
-                {"device_id": device_id, "device_name": name, "reason": health.reason},
+                {
+                    "device_id": device_id,
+                    "device_name": name,
+                    "reason": health.reason,
+                    "timeout_minutes": health.timeout,
+                },
             )
+
         else:
             await self.hass.services.async_call(
                 "persistent_notification",
@@ -173,6 +220,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                 {"notification_id": notif_id},
                 blocking=False,
             )
+
             if notify_recovered:
                 msg = f"Gerät **{name}** ist wieder erreichbar."
                 await self._maybe_notify(notify_service, "Device Saver", msg)
@@ -185,6 +233,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
     async def _maybe_notify(self, notify_service: str, title: str, message: str) -> None:
         if not notify_service:
             return
+
         if "." in notify_service:
             domain, service = notify_service.split(".", 1)
         else:
