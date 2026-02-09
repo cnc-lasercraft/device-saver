@@ -2,7 +2,7 @@
 {
   "domain": "device_saver",
   "name": "Device Saver",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "documentation": "https://github.com/cnc-lasercraft/device-saver",
   "issue_tracker": "https://github.com/cnc-lasercraft/device-saver/issues",
   "codeowners": ["@UrsLandis"],
