@@ -1,1 +1,31 @@
 
+{
+  "title": "Device Saver",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Device Saver",
+        "description": "Select devices to monitor.",
+        "data": {
+          "devices": "Devices",
+          "timeout_minutes": "Timeout (minutes)",
+          "notify_service": "Optional notify service (e.g. notify.mobile_app_...)",
+          "notify_recovered": "Notify also on recovery"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Device Saver Options",
+        "data": {
+          "devices": "Devices",
+          "timeout_minutes": "Timeout (minutes)",
+          "notify_service": "Optional notify service (e.g. notify.mobile_app_...)",
+          "notify_recovered": "Notify also on recovery"
+        }
+      }
+    }
+  }
+}
