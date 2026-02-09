@@ -1,1 +1,30 @@
-
+{
+  "title": "Device Saver",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Device Saver",
+        "description": "Wähle Geräte aus, die überwacht werden sollen.",
+        "data": {
+          "devices": "Geräte",
+          "timeout_minutes": "Timeout (Minuten)",
+          "notify_service": "Optionaler Notify-Service (z.B. notify.mobile_app_...)",
+          "notify_recovered": "Auch bei Wiederherstellung benachrichtigen"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Device Saver Optionen",
+        "data": {
+          "devices": "Geräte",
+          "timeout_minutes": "Timeout (Minuten)",
+          "notify_service": "Optionaler Notify-Service (z.B. notify.mobile_app_...)",
+          "notify_recovered": "Auch bei Wiederherstellung benachrichtigen"
+        }
+      }
+    }
+  }
+}
