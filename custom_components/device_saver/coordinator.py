@@ -18,9 +18,12 @@ from .const import (
     CONF_DEVICES_CRIT,
     CONF_DEVICES_NORM,
     CONF_DEVICES_SLOW,
-    TIMEOUT_CRIT,
-    TIMEOUT_NORM,
-    TIMEOUT_SLOW,
+    CONF_TIMEOUT_CRIT_MIN,
+    CONF_TIMEOUT_NORM_MIN,
+    CONF_TIMEOUT_SLOW_MIN,
+    DEFAULT_TIMEOUT_CRIT_MIN,
+    DEFAULT_TIMEOUT_NORM_MIN,
+    DEFAULT_TIMEOUT_SLOW_MIN,
     CONF_NOTIFY_SERVICE,
     CONF_NOTIFY_RECOVERED,
     DEFAULT_NOTIFY_RECOVERED,
@@ -28,6 +31,20 @@ from .const import (
 )
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _format_minutes(m: int) -> str:
+    # 1m / 3h / 1w style
+    if m % 10080 == 0:
+        w = m // 10080
+        return f"{w}w"
+    if m % 1440 == 0:
+        d = m // 1440
+        return f"{d}d"
+    if m % 60 == 0:
+        h = m // 60
+        return f"{h}h"
+    return f"{m}m"
 
 
 @dataclass
@@ -38,7 +55,8 @@ class DeviceHealth:
     down: bool
     reason: str
     last_ok: dt_util.dt.datetime | None
-    timeout: int  # minutes
+    timeout_minutes: int
+    timeout_label: str
 
 
 class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
@@ -82,19 +100,18 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
             return "critical"
         if device_id in slow:
             return "slow"
-        # default: normal (also if explicitly in norm)
         return "normal"
 
-    def _timeout_minutes_for_device(self, device_id: str) -> int:
-        tier = self._tier_for_device(device_id)
+    def _timeout_minutes_for_tier(self, tier: str) -> int:
         if tier == "critical":
-            return int(TIMEOUT_CRIT)
+            return int(self._cfg(CONF_TIMEOUT_CRIT_MIN, DEFAULT_TIMEOUT_CRIT_MIN))
         if tier == "slow":
-            return int(TIMEOUT_SLOW)
-        return int(TIMEOUT_NORM)
+            return int(self._cfg(CONF_TIMEOUT_SLOW_MIN, DEFAULT_TIMEOUT_SLOW_MIN))
+        return int(self._cfg(CONF_TIMEOUT_NORM_MIN, DEFAULT_TIMEOUT_NORM_MIN))
 
     def _timeout_for_device(self, device_id: str) -> timedelta:
-        return timedelta(minutes=self._timeout_minutes_for_device(device_id))
+        tier = self._tier_for_device(device_id)
+        return timedelta(minutes=self._timeout_minutes_for_tier(tier))
 
     def _device_name(self, device_id: str) -> str:
         dev = self._dr.devices.get(device_id)
@@ -119,7 +136,6 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
     @callback
     def _handle_state_changed(self, event: Event) -> None:
         watched = self._watched_devices()
-
         entity_id = event.data.get("entity_id")
         if not entity_id:
             return
@@ -140,8 +156,9 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
 
         for device_id in watched:
             tier = self._tier_for_device(device_id)
-            timeout_td = self._timeout_for_device(device_id)
-            timeout_min = self._timeout_minutes_for_device(device_id)
+            timeout_minutes = self._timeout_minutes_for_tier(tier)
+            timeout_td = timedelta(minutes=timeout_minutes)
+            timeout_label = _format_minutes(timeout_minutes)
             name = self._device_name(device_id)
 
             # startup grace / first-seen baseline
@@ -160,7 +177,6 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                 if good:
                     down = False
                     reason = "ok"
-                    self._last_ok[device_id] = self._last_ok.get(device_id, now)
                 else:
                     down = (now - self._last_ok[device_id]) > timeout_td
                     reason = "timeout" if down else "waiting"
@@ -173,7 +189,8 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                 down=down,
                 reason=reason,
                 last_ok=last_ok,
-                timeout=timeout_min,
+                timeout_minutes=timeout_minutes,
+                timeout_label=timeout_label,
             )
             data[device_id] = health
 
@@ -189,16 +206,14 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
         notif_id = f"{DOMAIN}_{self.entry.entry_id}_{device_id}"
 
         notify_service: str = (self._cfg(CONF_NOTIFY_SERVICE, "") or "").strip()
-        notify_recovered: bool = bool(
-            self._cfg(CONF_NOTIFY_RECOVERED, DEFAULT_NOTIFY_RECOVERED)
-        )
+        notify_recovered: bool = bool(self._cfg(CONF_NOTIFY_RECOVERED, DEFAULT_NOTIFY_RECOVERED))
 
         if down:
             msg = (
-                f"Gerät **{name}** реагiert nicht mehr.\n"
+                f"Gerät **{name}** reagiert nicht mehr.\n"
                 f"- Tier: {health.tier}\n"
                 f"- Grund: {health.reason}\n"
-                f"- Timeout: {health.timeout} min"
+                f"- Timeout: {health.timeout_label}"
             )
             await self.hass.services.async_call(
                 "persistent_notification",
@@ -215,7 +230,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                     "device_name": name,
                     "tier": health.tier,
                     "reason": health.reason,
-                    "timeout_minutes": health.timeout,
+                    "timeout_minutes": health.timeout_minutes,
                 },
             )
         else:
