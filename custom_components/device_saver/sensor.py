@@ -66,6 +66,7 @@ class DeviceSaverDownDevicesSensor(SensorEntity):
                 "reason": h.reason,
                 "timeout_minutes": h.timeout_minutes,
                 "timeout": h.timeout_label,
+                "connection_type": h.connection_type,
                 "last_ok": h.last_ok.isoformat() if h.last_ok else None,
             }
             for h in data.values()
