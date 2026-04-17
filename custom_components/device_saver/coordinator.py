@@ -35,7 +35,7 @@ IGNORED_INTEGRATIONS: frozenset[str] = frozenset({"unifi", "browser_mod"})
 
 # Entities from these platforms are excluded from health checks (they report
 # static values even when the physical device is offline)
-IGNORED_PLATFORMS: frozenset[str] = frozenset({"battery_notes"})
+IGNORED_PLATFORMS: frozenset[str] = frozenset({"battery_notes", "unifi"})
 
 CONNECTION_TYPE_MAP: dict[str, str] = {
     "mqtt": "Zigbee",

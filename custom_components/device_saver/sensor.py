@@ -44,41 +44,14 @@ class DeviceSaverDownDevicesSensor(SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_down_devices"
 
     @property
-    def native_value(self) -> str:
+    def native_value(self) -> int:
         data = self.coordinator.data or {}
-        down = [
-            f"{h.device_name} ({h.tier}, {h.timeout_label})"
-            for h in data.values()
-            if h.down
-        ]
-        return ", ".join(down) if down else ""
+        return sum(1 for h in data.values() if h.down)
 
     @property
     def extra_state_attributes(self):
         data = self.coordinator.data or {}
-
-        all_items = [
-            {
-                "device_id": h.device_id,
-                "name": h.device_name,
-                "tier": h.tier,
-                "down": h.down,
-                "reason": h.reason,
-                "timeout_minutes": h.timeout_minutes,
-                "timeout": h.timeout_label,
-                "connection_type": h.connection_type,
-                "last_ok": h.last_ok.isoformat() if h.last_ok else None,
-            }
-            for h in data.values()
-        ]
-
-        down_items = [x for x in all_items if x["down"]]
-
-        return {
-            "devices": all_items,        # full list (array)
-            "down": down_items,          # only down (array)
-            "down_count": len(down_items)
-        }
+        return {"down_count": sum(1 for h in data.values() if h.down)}
 
     async def async_update(self) -> None:
         await self.coordinator.async_request_refresh()

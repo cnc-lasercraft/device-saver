@@ -4,9 +4,11 @@ class DeviceSaverCard extends HTMLElement {
     this._sortField = "down";
     this._sortAsc = true;
     this._filter = "";
-    this._lastDataJson = "";
+    this._lastStateSig = "";
     this._initialized = false;
     this._devices = [];
+    this._fetchedDevices = [];
+    this._fetchInFlight = false;
     this._hasMatter = false;
   }
 
@@ -20,14 +22,32 @@ class DeviceSaverCard extends HTMLElement {
     this._hass = hass;
     const dsState = hass.states[this._dsEntity];
     const msState = this._msEntity ? hass.states[this._msEntity] : null;
-    const dataJson = (dsState ? JSON.stringify(dsState.attributes) : "") +
-                     (msState ? JSON.stringify(msState.attributes) : "");
+    // Signature based only on state + down_count (not the full attribute blob),
+    // so we don't re-render on unrelated attribute noise.
+    const sig = (dsState ? `${dsState.state}|${dsState.attributes.down_count ?? ""}` : "") +
+                "::" +
+                (msState ? `${msState.state}` : "");
     if (!this._initialized) {
       this._fullRender();
       this._initialized = true;
-    } else if (dataJson !== this._lastDataJson) {
-      this._lastDataJson = dataJson;
+      this._fetchDevices();
+    } else if (sig !== this._lastStateSig) {
+      this._lastStateSig = sig;
+      this._fetchDevices();
+    }
+  }
+
+  async _fetchDevices() {
+    if (!this._hass || this._fetchInFlight) return;
+    this._fetchInFlight = true;
+    try {
+      const res = await this._hass.callWS({ type: "device_saver/get_devices" });
+      this._fetchedDevices = (res && res.devices) || [];
       this._updateTable();
+    } catch (e) {
+      console.error("device-saver-card: WS fetch failed", e);
+    } finally {
+      this._fetchInFlight = false;
     }
   }
 
@@ -37,8 +57,9 @@ class DeviceSaverCard extends HTMLElement {
       this.innerHTML = `<ha-card header="Device Saver"><div class="card-content">Entity not found: ${this._dsEntity}</div></ha-card>`;
       return;
     }
-    this._lastDataJson = JSON.stringify(dsState.attributes) +
-      (this._msEntity && this._hass.states[this._msEntity] ? JSON.stringify(this._hass.states[this._msEntity].attributes) : "");
+    const msState0 = this._msEntity ? this._hass.states[this._msEntity] : null;
+    this._lastStateSig = `${dsState.state}|${dsState.attributes.down_count ?? ""}::` +
+      (msState0 ? `${msState0.state}` : "");
 
     this.innerHTML = `
       <ha-card>
@@ -129,10 +150,7 @@ class DeviceSaverCard extends HTMLElement {
   }
 
   _mergeData() {
-    const dsState = this._hass.states[this._dsEntity];
-    if (!dsState) return [];
-
-    let devices = (dsState.attributes.devices || []).map(d => ({...d}));
+    let devices = this._fetchedDevices.map(d => ({...d}));
 
     const msState = this._msEntity ? this._hass.states[this._msEntity] : null;
     this._hasMatter = !!msState;
