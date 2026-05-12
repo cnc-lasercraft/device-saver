@@ -162,7 +162,7 @@ class DeviceSaverCard extends HTMLElement {
         if (md.name) matterByName[md.name] = md;
       }
       for (const d of devices) {
-        if (d.connection_type === "Thread" && matterByName[d.name]) {
+        if (d.connection_type === "Matter" && matterByName[d.name]) {
           d._matter = matterByName[d.name];
         }
       }
@@ -343,8 +343,8 @@ class DeviceSaverCard extends HTMLElement {
 
   _connectionHtml(conn) {
     const colors = {
-      "Zigbee": "#ffb300", "Thread": "#4caf50", "WLAN": "#03a9f4",
-      "Solar": "#ff9800", "Andere": "#78909c",
+      "Zigbee": "#ffb300", "Matter": "#9c27b0", "HomeKit": "#00bcd4",
+      "WLAN": "#03a9f4", "Solar": "#ff9800", "Andere": "#78909c",
     };
     const color = colors[conn] || "#78909c";
     return `<span class="ds-conn-badge" style="color:${color};border:1px solid ${color}44">${this._escHtml(conn)}</span>`;

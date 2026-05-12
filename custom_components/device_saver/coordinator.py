@@ -40,8 +40,8 @@ IGNORED_PLATFORMS: frozenset[str] = frozenset({"battery_notes", "unifi"})
 CONNECTION_TYPE_MAP: dict[str, str] = {
     "mqtt": "Zigbee",
     "zha": "Zigbee",
-    "matter": "Thread",
-    "homekit_controller": "Thread",
+    "matter": "Matter",
+    "homekit_controller": "HomeKit",
     "esphome": "WLAN",
     "shelly": "WLAN",
     "tado": "WLAN",
