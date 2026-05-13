@@ -55,5 +55,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    coordinator = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    if isinstance(coordinator, DeviceSaverCoordinator):
+        await coordinator.async_shutdown()
     return True

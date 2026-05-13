@@ -10,7 +10,12 @@ from homeassistant.const import EVENT_STATE_CHANGED
 from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.device_registry import DeviceEntryType
+from homeassistant.helpers.device_registry import (
+    DeviceEntryType,
+    EVENT_DEVICE_REGISTRY_UPDATED,
+)
+from homeassistant.helpers.entity_registry import EVENT_ENTITY_REGISTRY_UPDATED
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -91,6 +96,9 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
         self._er = er.async_get(hass)
 
         self._unsub_state_changed = None
+        self._unsub_er_updated = None
+        self._unsub_dr_updated = None
+        self._cancel_rebuild = None
         self._last_ok: dict[str, dt_util.dt.datetime] = {}
         self._down_state: dict[str, bool] = {}
         self._store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_data")
@@ -215,7 +223,40 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
             self._unsub_state_changed = self.hass.bus.async_listen(
                 EVENT_STATE_CHANGED, self._handle_state_changed
             )
+        if self._unsub_er_updated is None:
+            self._unsub_er_updated = self.hass.bus.async_listen(
+                EVENT_ENTITY_REGISTRY_UPDATED, self._schedule_cache_rebuild
+            )
+        if self._unsub_dr_updated is None:
+            self._unsub_dr_updated = self.hass.bus.async_listen(
+                EVENT_DEVICE_REGISTRY_UPDATED, self._schedule_cache_rebuild
+            )
         await super().async_config_entry_first_refresh()
+
+    async def async_shutdown(self) -> None:
+        """Detach listeners and pending callbacks. Called on unload."""
+        for unsub_attr in ("_unsub_state_changed", "_unsub_er_updated", "_unsub_dr_updated"):
+            unsub = getattr(self, unsub_attr)
+            if unsub is not None:
+                unsub()
+                setattr(self, unsub_attr, None)
+        if self._cancel_rebuild is not None:
+            self._cancel_rebuild()
+            self._cancel_rebuild = None
+
+    @callback
+    def _schedule_cache_rebuild(self, _event: Event) -> None:
+        # Debounce: a single re-commission or rename can fire many registry
+        # events back-to-back; coalesce them into one rebuild.
+        if self._cancel_rebuild is not None:
+            self._cancel_rebuild()
+        self._cancel_rebuild = async_call_later(self.hass, 5.0, self._do_cache_rebuild)
+
+    @callback
+    def _do_cache_rebuild(self, _now) -> None:
+        self._cancel_rebuild = None
+        self._build_cache()
+        self.hass.async_create_task(self.async_request_refresh())
 
     @callback
     def _handle_state_changed(self, event: Event) -> None:
