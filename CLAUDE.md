@@ -29,6 +29,10 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
 - "Grundeinstellungen → Probleme" gruppiert nach Connection Type
 - Lovelace-Resource `/local/device-saver-card.js?v=N` — nach JS-Update Version bumpen via `ha_config_set_dashboard_resource` (Browser-Cache)
 
+## Sidebar-Badge (Down-Count)
+- Roter Kreis mit Down-Count kommt NICHT (mehr) aus `device-saver-card.js` — der hand-injizierte Badge wurde von Sidebar Organizer (accordion_mode) gestrippt. NICHT wieder einbauen.
+- Quelle ist Sidebar Organizers native `notification:`-Map in `/homeassistant/www/sidebar-organizer.yaml`, keyed nach `url_path` (`device-saver`) → `sensor.down_count`. Greift nur im SO-Modus „Use YAML File" (sonst localStorage, pro Gerät). Details: `ha_quirks.md` → „Sidebar Organizer (accordion_mode) frisst injizierte Badges".
+
 ## GitHub
 - Repo: https://github.com/cnc-lasercraft/device-saver
 - Branch: main
