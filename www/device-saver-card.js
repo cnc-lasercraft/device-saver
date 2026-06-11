@@ -431,78 +431,10 @@ window.customCards.push({
   description: "Device health overview with optional Matter Saver integration",
 });
 
-/* ── Sidebar Badge: show down device count ── */
-(function initSidebarBadge() {
-  const LABEL = "Device Saver";
-  const ENTITY = "sensor.down_count";
-  const BADGE_ID = "ds-sidebar-badge";
-
-  function getHass() {
-    const el = document.querySelector("home-assistant");
-    return el && (el.hass || el.__hass);
-  }
-
-  function findSidebarItem() {
-    try {
-      const sidebar = document.querySelector("home-assistant")
-        ?.shadowRoot?.querySelector("home-assistant-main")
-        ?.shadowRoot?.querySelector("ha-drawer")
-        ?.querySelector("ha-sidebar")
-        ?.shadowRoot;
-      if (!sidebar) return null;
-      const items = sidebar.querySelectorAll("ha-md-list-item");
-      for (const item of items) {
-        const headline = item.querySelector('.item-text[slot="headline"]');
-        if (headline && headline.textContent.trim() === LABEL) return item;
-      }
-      return null;
-    } catch { return null; }
-  }
-
-  function updateBadge(count) {
-    const item = findSidebarItem();
-    if (!item) return;
-    let badge = item.querySelector(`#${BADGE_ID}`);
-    if (count > 0) {
-      if (!badge) {
-        badge = document.createElement("span");
-        badge.id = BADGE_ID;
-        badge.slot = "end";
-        badge.className = "badge";
-        badge.style.cssText =
-          "min-width:20px;height:20px;border-radius:10px;" +
-          "background:#f44336;color:#fff;font-size:12px;font-weight:700;" +
-          "display:inline-flex;align-items:center;justify-content:center;" +
-          "padding:0 5px;box-sizing:border-box;line-height:1;";
-        item.appendChild(badge);
-      }
-      badge.textContent = count;
-    } else if (badge) {
-      badge.remove();
-    }
-  }
-
-  function poll() {
-    const hass = getHass();
-    if (!hass) { setTimeout(poll, 2000); return; }
-    const state = hass.states[ENTITY];
-    updateBadge(state ? parseInt(state.state, 10) || 0 : 0);
-
-    hass.connection.subscribeEvents((ev) => {
-      if (ev.data.entity_id === ENTITY) {
-        const val = parseInt(ev.data.new_state?.state, 10) || 0;
-        updateBadge(val);
-      }
-    }, "state_changed");
-
-    setInterval(() => {
-      const h = getHass();
-      if (!h) return;
-      const s = h.states[ENTITY];
-      updateBadge(s ? parseInt(s.state, 10) || 0 : 0);
-    }, 30000);
-  }
-
-  if (document.readyState === "complete") poll();
-  else window.addEventListener("load", poll);
-})();
+/*
+ * Sidebar down-count badge is provided by Sidebar Organizer's native
+ * `notification:` config (sidebar-organizer.yaml → device-saver), keyed to
+ * sensor.down_count. The previous hand-injected badge was removed because
+ * Sidebar Organizer (accordion_mode) re-renders the sidebar and strips
+ * externally injected slot="end" elements, so the badge never survived.
+ */
