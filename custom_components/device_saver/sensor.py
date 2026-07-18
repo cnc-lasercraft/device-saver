@@ -51,7 +51,10 @@ class DeviceSaverDownDevicesSensor(SensorEntity):
     @property
     def extra_state_attributes(self):
         data = self.coordinator.data or {}
-        return {"down_count": sum(1 for h in data.values() if h.down)}
+        return {
+            "down_count": sum(1 for h in data.values() if h.down),
+            "gated_count": sum(1 for h in data.values() if h.gated),
+        }
 
     async def async_update(self) -> None:
         await self.coordinator.async_request_refresh()

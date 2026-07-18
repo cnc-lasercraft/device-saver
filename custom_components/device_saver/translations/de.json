@@ -19,6 +19,14 @@
     "step": {
       "init": {
         "title": "Device Saver Optionen",
+        "menu_options": {
+          "settings": "Einstellungen",
+          "add_gate": "Power-Gate hinzufügen",
+          "remove_gate": "Power-Gate entfernen"
+        }
+      },
+      "settings": {
+        "title": "Device Saver Optionen",
         "data": {
           "devices_excluded": "Ausgeschlossene Geräte",
           "timeout_critical_minutes": "Timeout Critical (Minuten)",
@@ -26,7 +34,24 @@
           "notify_service": "Optionaler Notify-Service (z.B. notify.mobile_app_...)",
           "notify_recovered": "Auch bei Wiederherstellung benachrichtigen"
         }
+      },
+      "add_gate": {
+        "title": "Power-Gate hinzufügen",
+        "description": "Solange die Gate-Entity aus ist, gilt das Gerät als bewusst stromlos statt down.",
+        "data": {
+          "device": "Gerät",
+          "gate_entity": "Gate-Entity (Schalter)"
+        }
+      },
+      "remove_gate": {
+        "title": "Power-Gate entfernen",
+        "data": {
+          "remove": "Zu entfernende Gates"
+        }
       }
+    },
+    "abort": {
+      "no_gates": "Keine Power-Gates konfiguriert."
     }
   }
 }

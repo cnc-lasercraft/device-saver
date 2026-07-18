@@ -24,7 +24,7 @@ class DeviceSaverCard extends HTMLElement {
     const msState = this._msEntity ? hass.states[this._msEntity] : null;
     // Signature based only on state + down_count (not the full attribute blob),
     // so we don't re-render on unrelated attribute noise.
-    const sig = (dsState ? `${dsState.state}|${dsState.attributes.down_count ?? ""}` : "") +
+    const sig = (dsState ? `${dsState.state}|${dsState.attributes.down_count ?? ""}|${dsState.attributes.gated_count ?? ""}` : "") +
                 "::" +
                 (msState ? `${msState.state}` : "");
     if (!this._initialized) {
@@ -58,7 +58,7 @@ class DeviceSaverCard extends HTMLElement {
       return;
     }
     const msState0 = this._msEntity ? this._hass.states[this._msEntity] : null;
-    this._lastStateSig = `${dsState.state}|${dsState.attributes.down_count ?? ""}::` +
+    this._lastStateSig = `${dsState.state}|${dsState.attributes.down_count ?? ""}|${dsState.attributes.gated_count ?? ""}::` +
       (msState0 ? `${msState0.state}` : "");
 
     this.innerHTML = `
@@ -71,6 +71,7 @@ class DeviceSaverCard extends HTMLElement {
           .ds-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
           .ds-dot.online { background: #4caf50; }
           .ds-dot.down { background: #f44336; }
+          .ds-dot.gated { background: #78909c; }
           .ds-search-wrap { padding: 0 16px 8px; }
           .ds-search {
             width: 100%; padding: 8px 12px; box-sizing: border-box;
@@ -101,6 +102,7 @@ class DeviceSaverCard extends HTMLElement {
           }
           .ds-status { display: flex; align-items: center; gap: 6px; }
           .ds-down-row { opacity: 0.7; }
+          .ds-gated-row { opacity: 0.5; }
           .ds-no-results td { text-align: center; padding: 20px; color: var(--secondary-text-color, #999); }
           .ds-conn-badge {
             display: inline-block; padding: 2px 8px; border-radius: 4px;
@@ -177,7 +179,8 @@ class DeviceSaverCard extends HTMLElement {
     let devices = this._mergeData();
     const total = devices.length;
     const downCount = devices.filter(d => d.down).length;
-    const onlineCount = total - downCount;
+    const gatedCount = devices.filter(d => d.gated).length;
+    const onlineCount = total - downCount - gatedCount;
 
     // Stats by connection type
     const connStats = {};
@@ -195,6 +198,7 @@ class DeviceSaverCard extends HTMLElement {
       statsEl.innerHTML = `
         <span class="ds-stat"><span class="ds-dot online"></span> ${onlineCount} online</span>
         <span class="ds-stat"><span class="ds-dot down"></span> ${downCount} down</span>
+        ${gatedCount ? `<span class="ds-stat"><span class="ds-dot gated"></span> ${gatedCount} stromlos</span>` : ""}
         ${connBreakdown ? `<span class="ds-stat" style="color:var(--secondary-text-color,#999)">${connBreakdown}</span>` : ""}
       `;
     }
@@ -217,7 +221,7 @@ class DeviceSaverCard extends HTMLElement {
 
     if (this._filter) {
       devices = devices.filter((d) => {
-        const parts = [d.name, d.connection_type, d.tier, d.down ? "down" : "online", d.timeout];
+        const parts = [d.name, d.connection_type, d.tier, d.down ? "down" : d.gated ? "stromlos" : "online", d.timeout];
         if (d._matter) parts.push(d._matter.thread_role, d._matter.firmware);
         return parts.join(" ").toLowerCase().includes(this._filter);
       });
@@ -261,7 +265,7 @@ class DeviceSaverCard extends HTMLElement {
         va = a._matter ? (a._matter.errors || 0) : 0;
         vb = b._matter ? (b._matter.errors || 0) : 0;
       } else if (field === "down") {
-        va = a.down ? 0 : 1; vb = b.down ? 0 : 1;
+        va = a.down ? 0 : a.gated ? 1 : 2; vb = b.down ? 0 : b.gated ? 1 : 2;
       } else if (field === "last_ok") {
         va = a.last_ok || ""; vb = b.last_ok || "";
       } else {
@@ -294,7 +298,7 @@ class DeviceSaverCard extends HTMLElement {
 
   _groupValue(d, field) {
     switch (field) {
-      case "down": return d.down ? "Down" : "Online";
+      case "down": return d.down ? "Down" : d.gated ? "Stromlos" : "Online";
       case "connection_type": return d.connection_type || "Andere";
       case "tier": return d.tier === "critical" ? "Critical" : "Slow (Battery)";
       case "timeout": return d.timeout || "Unknown";
@@ -317,9 +321,9 @@ class DeviceSaverCard extends HTMLElement {
   }
 
   _deviceRow(d) {
-    const statusIcon = d.down ? "\uD83D\uDD34" : "\uD83D\uDFE2";
-    const statusText = d.down ? "down" : "online";
-    const rowClass = d.down ? "ds-down-row" : "";
+    const statusIcon = d.down ? "\uD83D\uDD34" : d.gated ? "\uD83D\uDD0C" : "\uD83D\uDFE2";
+    const statusText = d.down ? "down" : d.gated ? "stromlos" : "online";
+    const rowClass = d.down ? "ds-down-row" : d.gated ? "ds-gated-row" : "";
 
     let html = `<tr class="${rowClass}">
       <td>${this._escHtml(d.name)}</td>

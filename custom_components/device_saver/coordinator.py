@@ -23,6 +23,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     DOMAIN,
     CONF_DEVICES_EXCLUDED,
+    CONF_POWER_GATES,
     CONF_TIMEOUT_CRIT_MIN,
     CONF_TIMEOUT_SLOW_MIN,
     DEFAULT_TIMEOUT_CRIT_MIN,
@@ -77,6 +78,7 @@ class DeviceHealth:
     timeout_minutes: int
     timeout_label: str
     connection_type: str
+    gated: bool = False
 
 
 class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
@@ -276,6 +278,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
     async def _async_update_data(self) -> dict[str, DeviceHealth]:
         now = dt_util.utcnow()
         data: dict[str, DeviceHealth] = {}
+        power_gates: dict[str, str] = self._cfg(CONF_POWER_GATES, {}) or {}
 
         for device_id, tier in self._device_tier.items():
             timeout_minutes = self._timeout_minutes_for_tier(tier)
@@ -301,11 +304,33 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
             states = [self.hass.states.get(eid) for eid in entity_ids]
             good = [s for s in states if s and s.state not in STATE_BAD]
 
-            if good:
+            # Power gate: gate off => deliberately unpowered, never "down".
+            # Gate unavailable/unknown => normal down logic (a dead gate must
+            # not mask a real outage).
+            gated = False
+            gate_on_since = None
+            gate_entity = power_gates.get(device_id)
+            if gate_entity:
+                gate_state = self.hass.states.get(gate_entity)
+                if gate_state is not None:
+                    if gate_state.state == "off":
+                        gated = True
+                    elif gate_state.state == "on":
+                        gate_on_since = gate_state.last_changed
+
+            if gated:
+                down = False
+                reason = "gated"
+            elif good:
                 down = False
                 reason = "ok"
             else:
-                down = (now - self._last_ok[device_id]) > timeout_td
+                last_ok = self._last_ok[device_id]
+                # Timeout counts from gate power-on, so the device gets its
+                # full boot window after being re-powered.
+                if gate_on_since is not None and gate_on_since > last_ok:
+                    last_ok = gate_on_since
+                down = (now - last_ok) > timeout_td
                 reason = "timeout" if down else "waiting"
 
             health = DeviceHealth(
@@ -318,6 +343,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                 timeout_minutes=timeout_minutes,
                 timeout_label=timeout_label,
                 connection_type=self._device_conn.get(device_id, "Andere"),
+                gated=gated,
             )
             data[device_id] = health
 
@@ -367,6 +393,10 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                 {"notification_id": notif_id},
                 blocking=False,
             )
+            if health.gated:
+                # Deliberately unpowered — "recovered" push/event would be
+                # misleading; the device is off, not back.
+                return
             if notify_recovered:
                 msg = f"Gerät **{name}** ist wieder erreichbar."
                 await self._maybe_notify(notify_service, "Device Saver", msg)

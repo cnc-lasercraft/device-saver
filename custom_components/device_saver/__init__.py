@@ -29,6 +29,7 @@ def _ws_get_devices(hass: HomeAssistant, connection, msg) -> None:
                     "name": h.device_name,
                     "tier": h.tier,
                     "down": h.down,
+                    "gated": h.gated,
                     "reason": h.reason,
                     "timeout_minutes": h.timeout_minutes,
                     "timeout": h.timeout_label,
@@ -50,7 +51,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     domain_data[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload on options change so excluded devices / power gates apply immediately."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

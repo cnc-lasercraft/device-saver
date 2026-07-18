@@ -19,6 +19,14 @@
     "step": {
       "init": {
         "title": "Device Saver Options",
+        "menu_options": {
+          "settings": "Settings",
+          "add_gate": "Add power gate",
+          "remove_gate": "Remove power gate"
+        }
+      },
+      "settings": {
+        "title": "Device Saver Options",
         "data": {
           "devices_excluded": "Excluded devices",
           "timeout_critical_minutes": "Critical timeout (minutes)",
@@ -26,7 +34,24 @@
           "notify_service": "Optional notify service (e.g. notify.mobile_app_...)",
           "notify_recovered": "Notify also on recovery"
         }
+      },
+      "add_gate": {
+        "title": "Add power gate",
+        "description": "While the gate entity is off, the device counts as deliberately unpowered instead of down.",
+        "data": {
+          "device": "Device",
+          "gate_entity": "Gate entity (switch)"
+        }
+      },
+      "remove_gate": {
+        "title": "Remove power gate",
+        "data": {
+          "remove": "Gates to remove"
+        }
       }
+    },
+    "abort": {
+      "no_gates": "No power gates configured."
     }
   }
 }

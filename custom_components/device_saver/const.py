@@ -2,6 +2,10 @@ DOMAIN = "device_saver"
 
 CONF_DEVICES_EXCLUDED = "devices_excluded"
 
+# Optional map device_id -> gate entity_id (e.g. a Shelly switch feeding the
+# device). Gate off => device is deliberately unpowered, not "down".
+CONF_POWER_GATES = "power_gates"
+
 CONF_TIMEOUT_CRIT_MIN = "timeout_critical_minutes"
 CONF_TIMEOUT_SLOW_MIN = "timeout_slow_minutes"
 

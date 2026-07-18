@@ -1,4 +1,4 @@
-from homeassistant.helpers import selector
+from homeassistant.helpers import device_registry as dr, selector
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
@@ -6,6 +6,7 @@ from homeassistant.core import callback
 from .const import (
     DOMAIN,
     CONF_DEVICES_EXCLUDED,
+    CONF_POWER_GATES,
     CONF_TIMEOUT_CRIT_MIN,
     CONF_TIMEOUT_SLOW_MIN,
     DEFAULT_TIMEOUT_CRIT_MIN,
@@ -55,11 +56,27 @@ class DeviceSaverOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, entry):
         self.entry = entry
 
-    async def async_step_init(self, user_input=None):
-        if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+    def _current(self) -> dict:
+        return {**self.entry.data, **self.entry.options}
 
-        current = {**self.entry.data, **self.entry.options}
+    def _gates(self) -> dict[str, str]:
+        return dict(self._current().get(CONF_POWER_GATES, {}) or {})
+
+    def _save(self, changes: dict):
+        # Options are replaced wholesale on save — merge so other keys survive
+        return self.async_create_entry(title="", data={**self.entry.options, **changes})
+
+    async def async_step_init(self, user_input=None):
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["settings", "add_gate", "remove_gate"],
+        )
+
+    async def async_step_settings(self, user_input=None):
+        if user_input is not None:
+            return self._save(user_input)
+
+        current = self._current()
 
         schema = vol.Schema({
             vol.Optional(CONF_DEVICES_EXCLUDED, default=current.get(CONF_DEVICES_EXCLUDED, [])): _DEVICE_MULTI,
@@ -68,4 +85,49 @@ class DeviceSaverOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(CONF_NOTIFY_SERVICE, default=current.get(CONF_NOTIFY_SERVICE, "")): selector.TextSelector(),
             vol.Optional(CONF_NOTIFY_RECOVERED, default=current.get(CONF_NOTIFY_RECOVERED, DEFAULT_NOTIFY_RECOVERED)): selector.BooleanSelector(),
         })
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="settings", data_schema=schema)
+
+    async def async_step_add_gate(self, user_input=None):
+        if user_input is not None:
+            gates = self._gates()
+            gates[user_input["device"]] = user_input["gate_entity"]
+            return self._save({CONF_POWER_GATES: gates})
+
+        schema = vol.Schema({
+            vol.Required("device"): selector.DeviceSelector(),
+            vol.Required("gate_entity"): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["switch", "input_boolean"])
+            ),
+        })
+        return self.async_show_form(step_id="add_gate", data_schema=schema)
+
+    async def async_step_remove_gate(self, user_input=None):
+        gates = self._gates()
+
+        if user_input is not None:
+            for device_id in user_input.get("remove", []):
+                gates.pop(device_id, None)
+            return self._save({CONF_POWER_GATES: gates})
+
+        if not gates:
+            return self.async_abort(reason="no_gates")
+
+        dev_reg = dr.async_get(self.hass)
+        options = []
+        for device_id, gate_entity in sorted(gates.items()):
+            dev = dev_reg.async_get(device_id)
+            name = (dev.name_by_user or dev.name) if dev else device_id
+            options.append(
+                selector.SelectOptionDict(value=device_id, label=f"{name} → {gate_entity}")
+            )
+
+        schema = vol.Schema({
+            vol.Required("remove"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=options,
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.LIST,
+                )
+            ),
+        })
+        return self.async_show_form(step_id="remove_gate", data_schema=schema)
