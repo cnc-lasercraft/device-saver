@@ -96,7 +96,7 @@ class DeviceSaverOptionsFlow(config_entries.OptionsFlow):
         schema = vol.Schema({
             vol.Required("device"): selector.DeviceSelector(),
             vol.Required("gate_entity"): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["switch", "input_boolean"])
+                selector.EntitySelectorConfig(domain=["switch", "input_boolean", "binary_sensor"])
             ),
         })
         return self.async_show_form(step_id="add_gate", data_schema=schema)
