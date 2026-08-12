@@ -32,7 +32,9 @@
           "timeout_critical_minutes": "Critical timeout (minutes)",
           "timeout_slow_minutes": "Slow timeout (minutes)",
           "notify_service": "Optional notify service (e.g. notify.mobile_app_...)",
-          "notify_recovered": "Notify also on recovery"
+          "notify_recovered": "Notify also on recovery",
+          "ignored_integrations": "Ignored integrations (devices belonging only to these are skipped)",
+          "ignored_platforms": "Ignored platforms (their entities don't count for health)"
         }
       },
       "add_gate": {

@@ -14,7 +14,22 @@ from .const import (
     CONF_NOTIFY_SERVICE,
     CONF_NOTIFY_RECOVERED,
     DEFAULT_NOTIFY_RECOVERED,
+    CONF_IGNORED_INTEGRATIONS,
+    DEFAULT_IGNORED_INTEGRATIONS,
+    CONF_IGNORED_PLATFORMS,
+    DEFAULT_IGNORED_PLATFORMS,
 )
+
+
+def _tag_multi(suggestions: list[str]):
+    # Free-form multi-select: known values as suggestions, custom ones allowed
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=sorted(suggestions),
+            multiple=True,
+            custom_value=True,
+        )
+    )
 
 
 def _minutes_selector():
@@ -84,6 +99,14 @@ class DeviceSaverOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(CONF_TIMEOUT_SLOW_MIN, default=current.get(CONF_TIMEOUT_SLOW_MIN, DEFAULT_TIMEOUT_SLOW_MIN)): _minutes_selector(),
             vol.Optional(CONF_NOTIFY_SERVICE, default=current.get(CONF_NOTIFY_SERVICE, "")): selector.TextSelector(),
             vol.Optional(CONF_NOTIFY_RECOVERED, default=current.get(CONF_NOTIFY_RECOVERED, DEFAULT_NOTIFY_RECOVERED)): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_IGNORED_INTEGRATIONS,
+                default=current.get(CONF_IGNORED_INTEGRATIONS, DEFAULT_IGNORED_INTEGRATIONS),
+            ): _tag_multi(current.get(CONF_IGNORED_INTEGRATIONS, DEFAULT_IGNORED_INTEGRATIONS)),
+            vol.Optional(
+                CONF_IGNORED_PLATFORMS,
+                default=current.get(CONF_IGNORED_PLATFORMS, DEFAULT_IGNORED_PLATFORMS),
+            ): _tag_multi(current.get(CONF_IGNORED_PLATFORMS, DEFAULT_IGNORED_PLATFORMS)),
         })
         return self.async_show_form(step_id="settings", data_schema=schema)
 

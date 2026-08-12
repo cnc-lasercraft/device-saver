@@ -31,17 +31,15 @@ from .const import (
     CONF_NOTIFY_SERVICE,
     CONF_NOTIFY_RECOVERED,
     DEFAULT_NOTIFY_RECOVERED,
+    CONF_IGNORED_INTEGRATIONS,
+    DEFAULT_IGNORED_INTEGRATIONS,
+    CONF_IGNORED_PLATFORMS,
+    DEFAULT_IGNORED_PLATFORMS,
+    STARTUP_GRACE_MIN,
     STATE_BAD,
 )
 
 LOGGER = logging.getLogger(__name__)
-
-# Devices that exclusively belong to these integrations are silently ignored
-IGNORED_INTEGRATIONS: frozenset[str] = frozenset({"unifi", "browser_mod"})
-
-# Entities from these platforms are excluded from health checks (they report
-# static values even when the physical device is offline)
-IGNORED_PLATFORMS: frozenset[str] = frozenset({"battery_notes", "unifi"})
 
 CONNECTION_TYPE_MAP: dict[str, str] = {
     "zha": "Zigbee",
@@ -100,6 +98,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
         self._unsub_er_updated = None
         self._unsub_dr_updated = None
         self._cancel_rebuild = None
+        self._started_at = dt_util.utcnow()
         self._last_ok: dict[str, dt_util.dt.datetime] = {}
         self._down_state: dict[str, bool] = {}
         self._store = Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_data")
@@ -121,12 +120,18 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
     def _build_cache(self) -> None:
         """Build device/entity/tier caches. Called once at startup."""
         excluded = set(self._cfg(CONF_DEVICES_EXCLUDED, []))
+        ignored_integrations = set(
+            self._cfg(CONF_IGNORED_INTEGRATIONS, DEFAULT_IGNORED_INTEGRATIONS) or []
+        )
+        ignored_platforms = set(
+            self._cfg(CONF_IGNORED_PLATFORMS, DEFAULT_IGNORED_PLATFORMS) or []
+        )
 
         device_entities: dict[str, list[str]] = {}
         for ent in self._er.entities.values():
             if not ent.device_id or ent.disabled_by:
                 continue
-            if ent.platform in IGNORED_PLATFORMS:
+            if ent.platform in ignored_platforms:
                 continue
             device_entities.setdefault(ent.device_id, []).append(ent.entity_id)
 
@@ -155,7 +160,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                 ce = self.hass.config_entries.async_get_entry(ce_id)
                 if ce:
                     ce_domains.add(ce.domain)
-            if ce_domains and ce_domains <= IGNORED_INTEGRATIONS:
+            if ce_domains and ce_domains <= ignored_integrations:
                 continue
             entity_ids = device_entities.get(dev.id, [])
             if not entity_ids:
@@ -224,12 +229,21 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
             self._down_state = data.get("down_state", {})
 
     async def _async_save_store(self) -> None:
-        """Persist last_ok and down_state to storage."""
+        """Persist last_ok and down_state to storage.
+
+        Only currently tracked devices are written — entries for removed or
+        excluded devices would otherwise accumulate forever.
+        """
+        tracked = self._device_tier
         await self._store.async_save({
             "last_ok": {
-                did: ts.isoformat() for did, ts in self._last_ok.items()
+                did: ts.isoformat()
+                for did, ts in self._last_ok.items()
+                if did in tracked
             },
-            "down_state": self._down_state,
+            "down_state": {
+                did: v for did, v in self._down_state.items() if did in tracked
+            },
         })
 
     async def async_config_entry_first_refresh(self) -> None:
@@ -346,6 +360,18 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                     last_ok = gate_on_since
                 down = (now - last_ok) > timeout_td
                 reason = "timeout" if down else "waiting"
+                # Startup grace: right after HA start most entities are still
+                # unavailable because integrations are connecting. Don't declare
+                # NEW downs yet — devices already down before the restart stay
+                # down (no false recovery), real new outages surface once the
+                # grace window has passed.
+                if (
+                    down
+                    and not self._down_state.get(device_id, False)
+                    and (now - self._started_at) < timedelta(minutes=STARTUP_GRACE_MIN)
+                ):
+                    down = False
+                    reason = "waiting"
 
             health = DeviceHealth(
                 device_id=device_id,
