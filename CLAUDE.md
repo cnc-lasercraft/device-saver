@@ -17,7 +17,7 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
 - IGNORED_INTEGRATIONS: `{"unifi", "browser_mod"}`
 - IGNORED_PLATFORMS: `{"battery_notes", "unifi"}`
 - Exclusion-Liste: 28 Devices in BOTH `data` AND `options` (synchron halten!)
-- Connection Type: Zigbee/Matter/HomeKit/WLAN/Solar/Andere via CONNECTION_TYPE_MAP (inkl. smlight). Matter/HomeKit statt „Thread", da HA den Transport nicht zuverlässig exponiert.
+- Connection Type: Zigbee/Matter/HomeKit/WLAN/Solar/Andere via CONNECTION_TYPE_MAP (inkl. smlight). Matter/HomeKit statt „Thread", da HA den Transport nicht zuverlässig exponiert. MQTT ist NICHT pauschal Zigbee (seit v0.0.14): nur Devices mit Registry-Identifier `mqtt/zigbee2mqtt*` gelten als Zigbee, generische MQTT-Discovery-Devices (z.B. WiCAN) als „Andere".
 - Timeouts: Critical=15min, Slow=90min (in config entry data gespeichert)
 - Power-Gates: Options-Key `power_gates` = Map `{device_id: gate_entity_id}` (Options-Flow-Menü „Power-Gate hinzufügen/entfernen"). Gate-Entity darf `switch`, `input_boolean` oder `binary_sensor` sein (seit v0.0.13; z.B. `binary_sensor.honda_wn7_wach` für das WiCan der Honda WN7). Gate `off` ⇒ `gated=True`, `down=False`, `reason="gated"` (Karte: Gruppe „Stromlos", 🔌). Gate `on` ⇒ normale Logik, Timeout zählt ab Gate-Einschaltzeit (`max(last_ok, gate.last_changed)` — Boot-Fenster). Gate `unavailable` ⇒ normale Down-Logik (toter Shelly maskiert keinen Ausfall). Kein Recovered-Push/Event beim Übergang down→gated. Options-Änderungen lösen via Update-Listener einen Entry-Reload aus (gilt auch für devices_excluded).
 

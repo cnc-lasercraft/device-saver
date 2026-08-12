@@ -44,7 +44,6 @@ IGNORED_INTEGRATIONS: frozenset[str] = frozenset({"unifi", "browser_mod"})
 IGNORED_PLATFORMS: frozenset[str] = frozenset({"battery_notes", "unifi"})
 
 CONNECTION_TYPE_MAP: dict[str, str] = {
-    "mqtt": "Zigbee",
     "zha": "Zigbee",
     "matter": "Matter",
     "homekit_controller": "HomeKit",
@@ -169,7 +168,20 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
             conn = "Andere"
             for ce_id in dev.config_entries:
                 ce = self.hass.config_entries.async_get_entry(ce_id)
-                if ce and ce.domain in CONNECTION_TYPE_MAP:
+                if not ce:
+                    continue
+                if ce.domain == "mqtt":
+                    # Only Zigbee2MQTT devices are Zigbee; generic MQTT discovery
+                    # devices (e.g. WiCAN) stay "Andere"
+                    if any(
+                        len(idf) >= 2 and idf[0] == "mqtt"
+                        and str(idf[1]).startswith("zigbee2mqtt")
+                        for idf in dev.identifiers
+                    ):
+                        conn = "Zigbee"
+                        break
+                    continue
+                if ce.domain in CONNECTION_TYPE_MAP:
                     conn = CONNECTION_TYPE_MAP[ce.domain]
                     break
             device_conn[dev.id] = conn
