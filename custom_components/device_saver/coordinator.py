@@ -50,7 +50,7 @@ CONNECTION_TYPE_MAP: dict[str, str] = {
     "esphome": "WLAN",
     "shelly": "WLAN",
     "tado": "WLAN",
-    "vicare": "WLAN",
+    "vitogate_wp": "LAN",
     "huawei_solar": "Solar",
     "smlight": "Zigbee",
 }
@@ -172,7 +172,8 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                     continue
                 if ce.domain == "mqtt":
                     # Only Zigbee2MQTT devices are Zigbee; generic MQTT discovery
-                    # devices (e.g. WiCAN) stay "Andere"
+                    # devices (e.g. WiCAN) count as WLAN, overridable by a more
+                    # specific config entry on the same device
                     if any(
                         len(idf) >= 2 and idf[0] == "mqtt"
                         and str(idf[1]).startswith("zigbee2mqtt")
@@ -180,6 +181,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                     ):
                         conn = "Zigbee"
                         break
+                    conn = "WLAN"
                     continue
                 if ce.domain in CONNECTION_TYPE_MAP:
                     conn = CONNECTION_TYPE_MAP[ce.domain]

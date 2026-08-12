@@ -348,7 +348,7 @@ class DeviceSaverCard extends HTMLElement {
   _connectionHtml(conn) {
     const colors = {
       "Zigbee": "#ffb300", "Matter": "#9c27b0", "HomeKit": "#00bcd4",
-      "WLAN": "#03a9f4", "Solar": "#ff9800", "Andere": "#78909c",
+      "WLAN": "#03a9f4", "LAN": "#3f51b5", "Solar": "#ff9800", "Andere": "#78909c",
     };
     const color = colors[conn] || "#78909c";
     return `<span class="ds-conn-badge" style="color:${color};border:1px solid ${color}44">${this._escHtml(conn)}</span>`;
