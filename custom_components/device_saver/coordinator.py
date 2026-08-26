@@ -300,7 +300,15 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
             return
 
         new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
         if new_state and new_state.state not in STATE_BAD:
+            self._last_ok[device_id] = dt_util.utcnow()
+        elif old_state and old_state.state not in STATE_BAD:
+            # good -> bad transition: the device was demonstrably OK until
+            # right now, so the timeout must count from here — not from the
+            # last good state *change*, which for a quiet device (e.g. a
+            # switch that hasn't toggled for hours) may be long ago and
+            # would declare it down the instant it goes unavailable.
             self._last_ok[device_id] = dt_util.utcnow()
 
     async def _async_update_data(self) -> dict[str, DeviceHealth]:
