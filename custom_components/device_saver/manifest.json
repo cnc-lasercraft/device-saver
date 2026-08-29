@@ -2,7 +2,7 @@
   "domain": "device_saver",
   "name": "Device Saver",
   "codeowners": [
-    "@UrsLandis"
+    "@cnc-lasercraft"
   ],
   "config_flow": true,
   "dependencies": [
