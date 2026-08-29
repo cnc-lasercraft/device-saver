@@ -1,7 +1,11 @@
 # Device Saver
 
 Custom Component für Home Assistant: `device_saver`.
-Quellcode liegt auf dem HA-Server unter `/homeassistant/custom_components/device_saver/`.
+**Quelle ist dieses Repo** — seit v1.0.0 (29.08.2026) wird über HACS deployt, nicht mehr von Hand per SSH:
+Tag + GitHub-Release erstellen → `ha_manage_hacs(action="update_information")` (HACS pollt sonst nur alle ~48 h)
+→ `ha_manage_hacs(action="download", version="vX.Y.Z")` → HA-Restart. Der Pfad auf dem Server
+(`/homeassistant/custom_components/device_saver/`) ist dann HACS-verwaltet — nicht mehr direkt editieren,
+sonst weicht HACS' Buchhaltung vom Dateistand ab (war bis 29.08. der Fall: HACS meldete v0.0.11, live lief v0.0.17).
 
 ## SSH-Zugang
 ```
@@ -30,7 +34,22 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
 
 ## Dashboard / Karte
 - "Grundeinstellungen → Probleme" gruppiert nach Connection Type
-- Lovelace-Resource `/local/device-saver-card.js?v=N` — nach JS-Update Version bumpen via `ha_config_set_dashboard_resource` (Browser-Cache)
+- **Karte ist seit v1.0.0 in der Integration gebündelt**: liegt unter `custom_components/device_saver/www/`,
+  wird von `async_setup` via `StaticPathConfig` + `add_extra_js_url` unter `/device_saver/device-saver-card.js`
+  selbst registriert. **Keine Lovelace-Resource mehr** — der alte Eintrag `/local/device-saver-card.js?v=N` und
+  die Datei in `/homeassistant/www/` wurden am 29.08.2026 entfernt. Kein Versions-Bump nötig; `cache_headers=False`.
+- Die Karte ist in eine IIFE mit `customElements.get()`-Guard gewickelt — ein doppelter Load (etwa durch eine
+  übriggebliebene Resource) ist folgenlos statt „already declared"-SyntaxError.
+- Manifest braucht deshalb `dependencies: [frontend, http]` und ein `config_entry_only`-`CONFIG_SCHEMA`.
+
+## Entities (v1.1.0)
+- Die drei Entities hängen an einem Service-Device „Device Saver" (`entity.py` → `device_info()`).
+- **Diese Instanz behält die alten IDs** `sensor.down_count`, `sensor.down_devices`, `binary_sensor.problem` —
+  `entity_registry.async_get_or_create` leitet eine `entity_id` nur beim ersten Auftauchen einer `unique_id` ab
+  und ruft für bekannte `async_update_entity()` ohne `new_entity_id`. Verifiziert nach dem Restart 29.08.
+  Neuinstallationen bekommen `sensor.device_saver_down_count` etc.
+- Nebeneffekt: Die Anzeigenamen tragen jetzt das Device-Präfix („Device Saver Down Count" statt „Down Count").
+- Kein Self-Monitoring: der Coordinator überspringt `DeviceEntryType.SERVICE`.
 
 ## Sidebar-Badge (Down-Count)
 - Roter Kreis mit Down-Count kommt NICHT (mehr) aus `device-saver-card.js` — der hand-injizierte Badge wurde von Sidebar Organizer (accordion_mode) gestrippt. NICHT wieder einbauen.
