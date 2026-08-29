@@ -1,14 +1,24 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import voluptuous as vol
 
 from homeassistant.components import websocket_api
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN, PLATFORMS
 from .coordinator import DeviceSaverCoordinator
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+LOVELACE_CARDS = ("device-saver-card.js",)
 
 
 @websocket_api.websocket_command(
@@ -38,6 +48,26 @@ def _ws_get_devices(hass: HomeAssistant, connection, msg) -> None:
                 }
             )
     connection.send_result(msg["id"], {"devices": items})
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Serve and auto-load the bundled Lovelace card.
+
+    The card ships inside the integration, so HACS installs it along with the
+    rest — no manual resource entry and no separate download needed.
+    """
+    await hass.http.async_register_static_paths(
+        [
+            StaticPathConfig(
+                f"/{DOMAIN}",
+                str(Path(__file__).parent / "www"),
+                cache_headers=False,
+            )
+        ]
+    )
+    for card in LOVELACE_CARDS:
+        add_extra_js_url(hass, f"/{DOMAIN}/{card}")
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

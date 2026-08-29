@@ -1,12 +1,17 @@
 {
   "domain": "device_saver",
   "name": "Device Saver",
-  "codeowners": ["@UrsLandis"],
+  "codeowners": [
+    "@UrsLandis"
+  ],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": [
+    "frontend",
+    "http"
+  ],
   "documentation": "https://github.com/cnc-lasercraft/device-saver",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/cnc-lasercraft/device-saver/issues",
   "requirements": [],
-  "version": "0.0.17"
+  "version": "1.0.0"
 }
