@@ -1,5 +1,7 @@
 DOMAIN = "device_saver"
 
+DEVICE_NAME = "Device Saver"
+
 CONF_DEVICES_EXCLUDED = "devices_excluded"
 
 # Optional map device_id -> gate entity_id (e.g. a Shelly switch feeding the

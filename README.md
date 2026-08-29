@@ -65,13 +65,15 @@ This is what makes seasonal and scheduled hardware liveable: an air conditioner 
 
 ## Entities
 
+The integration's entities are grouped under a **Device Saver** service device:
+
 | Entity | State | Attributes |
 | --- | --- | --- |
-| `sensor.down_count` | number of devices down | — |
-| `sensor.down_devices` | number of devices down | `down_count`, `gated_count` |
-| `binary_sensor.problem` | `on` if anything is down | `down_devices`, `down_count` |
+| `sensor.device_saver_down_count` | number of devices down | — |
+| `sensor.device_saver_down_devices` | number of devices down | `down_count`, `gated_count` |
+| `binary_sensor.device_saver_problem` | `on` if anything is down | `down_devices`, `down_count` |
 
-The entity IDs are unprefixed because the entities are not attached to a device. If `sensor.down_count` or `binary_sensor.problem` collides with something you already have, rename it in the entity settings — the integration addresses its entities by unique ID, so a rename is safe.
+> **Installed before 1.1.0?** Your entities were created before they had a device, so they carry the shorter IDs `sensor.down_count`, `sensor.down_devices` and `binary_sensor.problem`. They keep them — the entity registry derives an entity ID only when it first sees a unique ID, so upgrading changes nothing and no dashboard, automation or template breaks. Rename them in the entity settings if you want the longer form; the integration addresses its entities by unique ID.
 
 **The device list is deliberately not exposed as a state attribute.** With a few hundred devices it would exceed Home Assistant's 16 KB attribute limit and hammer the recorder on every change. The full list is available on demand over WebSocket instead:
 

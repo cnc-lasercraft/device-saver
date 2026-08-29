@@ -5,6 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+from .entity import device_info
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
@@ -25,6 +26,7 @@ class DeviceSaverDownCountSensor(SensorEntity):
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         self.coordinator = coordinator
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_down_count"
+        self._attr_device_info = device_info(entry)
 
     @property
     def native_value(self) -> int:
@@ -42,6 +44,7 @@ class DeviceSaverDownDevicesSensor(SensorEntity):
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         self.coordinator = coordinator
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_down_devices"
+        self._attr_device_info = device_info(entry)
 
     @property
     def native_value(self) -> int:

@@ -5,6 +5,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+from .entity import device_info
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
@@ -20,6 +21,7 @@ class DeviceSaverProblemBinarySensor(BinarySensorEntity):
         self.coordinator = coordinator
         self.entry = entry
         self._attr_unique_id = f"{DOMAIN}_{entry.entry_id}_problem"
+        self._attr_device_info = device_info(entry)
 
     @property
     def is_on(self) -> bool:
