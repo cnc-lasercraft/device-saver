@@ -38,8 +38,12 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
   wird von `async_setup` via `StaticPathConfig` + `add_extra_js_url` unter `/device_saver/device-saver-card.js`
   selbst registriert. **Keine Lovelace-Resource mehr** — der alte Eintrag `/local/device-saver-card.js?v=N` und
   die Datei in `/homeassistant/www/` wurden am 29.08.2026 entfernt. Kein Versions-Bump nötig; `cache_headers=False`.
-- Die Karte ist in eine IIFE mit `customElements.get()`-Guard gewickelt — ein doppelter Load (etwa durch eine
-  übriggebliebene Resource) ist folgenlos statt „already declared"-SyntaxError.
+- Die Karte ist in eine IIFE gewickelt; die Registrierung selbst hängt seit v1.1.2 am `load`-Event
+  (`register()` am Dateiende, Guard + `try/catch` darin). Grund: HA installiert mit `app.js` den
+  Scoped-Custom-Element-Registry-Polyfill; ein `define()` davor landet nur in der nativen Registry und ist
+  für Lovelace unsichtbar → sporadischer „Konfigurationsfehler", den erst ein Reload heilt. Der frühere
+  Guard am Modulanfang ist bewusst entfernt — er hätte im Doppelload-Fall `register()` verhindert.
+  Details: `ha_quirks.md` → „`define()` vor `app.js` landet in der falschen Registry".
 - Manifest braucht deshalb `dependencies: [frontend, http]` und ein `config_entry_only`-`CONFIG_SCHEMA`.
 
 ## Entities (v1.1.0)

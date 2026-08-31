@@ -2,13 +2,12 @@
  * Device Saver Card
  *
  * Bundled with the integration and auto-registered at /device_saver/device-saver-card.js.
- * Wrapped in an IIFE with a registration guard so that a leftover manual
- * Lovelace resource (e.g. /local/device-saver-card.js) loading the same file a
- * second time is a no-op instead of a "already declared" SyntaxError.
+ * Wrapped in an IIFE; the registration itself is deferred and guarded (see register()
+ * at the bottom), so that a leftover manual Lovelace resource (e.g.
+ * /local/device-saver-card.js) loading the same file a second time is a no-op
+ * instead of a "already declared" SyntaxError.
  */
 (() => {
-  if (customElements.get("device-saver-card")) return;
-
   class DeviceSaverCard extends HTMLElement {
     constructor() {
       super();
@@ -438,13 +437,35 @@
     getCardSize() { return 8; }
   }
 
-  customElements.define("device-saver-card", DeviceSaverCard);
-  window.customCards = window.customCards || [];
-  window.customCards.push({
-    type: "device-saver-card",
-    name: "Device Saver Card",
-    description: "Device health overview with optional Matter Saver integration",
-  });
+  /*
+   * Register only once the frontend is loaded. HA's app.js installs the scoped
+   * custom element registry polyfill, which replaces customElements with its own
+   * map. A module from extra_module_url can run before app.js; defining then puts
+   * the element in the native registry only, where Lovelace's customElements.get()
+   * cannot see it -> "configuration error" until the page is reloaded. The guard
+   * and try/catch stay as a net against a double load (e.g. a leftover /local/
+   * resource pointing at the same file).
+   */
+  function register() {
+    if (customElements.get("device-saver-card")) return;
+    try {
+      customElements.define("device-saver-card", DeviceSaverCard);
+    } catch (e) {
+      return;
+    }
+    window.customCards = window.customCards || [];
+    window.customCards.push({
+      type: "device-saver-card",
+      name: "Device Saver Card",
+      description: "Device health overview with optional Matter Saver integration",
+    });
+  }
+
+  if (document.readyState === "complete") {
+    register();
+  } else {
+    window.addEventListener("load", register, { once: true });
+  }
 
   /*
    * Sidebar down-count badge is provided by Sidebar Organizer's native
