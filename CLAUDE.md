@@ -66,3 +66,12 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
 ## Wichtig
 - Exclusion-Liste nur in `options` pflegen (data ist historisch)
 - Nicht hetzen, jede Änderung verifizieren
+
+## Brand-Icon
+- Liegt in `custom_components/device_saver/brand/` (`icon.png` 256 px, `icon@2x.png` 512 px) und wird seit
+  HA 2026.3.0 direkt von dort gelesen (Brands Proxy API) — **kein PR an `home-assistant/brands` nötig**,
+  wohl aber ein Release, sonst liefert HACS die Datei nie aus.
+- Motiv: ein Fragezeichen aus Netzwerk-Knoten; der Punkt ist bernsteinfarben und bewusst unverbunden
+  (das Gerät, das vom Netz gefallen ist). Erzeugt von `tools/make_brand_icon.py` — liegt ausserhalb
+  `custom_components/`, wird also nicht an Nutzer ausgeliefert. Bilder randlos getrimmt, wie die
+  brands-Spezifikation es verlangt. Details: `ha_quirks.md` → „Brand-Icon einer Custom Component".
