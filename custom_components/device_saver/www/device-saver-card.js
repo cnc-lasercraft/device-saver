@@ -8,6 +8,11 @@
  * instead of a "already declared" SyntaxError.
  */
 (() => {
+  // Backoff for re-asking after an empty answer, in ms. Bounded on purpose: an
+  // empty device list can also be legitimate (fresh install, everything
+  // excluded), so we settle after these instead of polling forever.
+  const EMPTY_RETRY_DELAYS = [2000, 4000, 8000, 15000, 30000];
+
   class DeviceSaverCard extends HTMLElement {
     constructor() {
       super();
@@ -20,6 +25,12 @@
       this._fetchedDevices = [];
       this._fetchInFlight = false;
       this._hasMatter = false;
+      this._retryTimer = null;
+    }
+
+    disconnectedCallback() {
+      clearTimeout(this._retryTimer);
+      this._retryTimer = null;
     }
 
     setConfig(config) {
@@ -47,17 +58,34 @@
       }
     }
 
-    async _fetchDevices() {
+    async _fetchDevices(attempt = 0) {
       if (!this._hass || this._fetchInFlight) return;
       this._fetchInFlight = true;
+      let devices = null;
       try {
         const res = await this._hass.callWS({ type: "device_saver/get_devices" });
-        this._fetchedDevices = (res && res.devices) || [];
+        devices = (res && res.devices) || [];
+        this._fetchedDevices = devices;
         this._updateTable();
       } catch (e) {
         console.error("device-saver-card: WS fetch failed", e);
       } finally {
         this._fetchInFlight = false;
+      }
+
+      // An empty answer right after a Home Assistant restart is not a result,
+      // it's a race: the coordinator hasn't built its cache yet. Since we only
+      // re-fetch when the down count changes, that empty list would otherwise
+      // stick until the count happens to move -- a card left open across a
+      // restart stayed on "no devices found" indefinitely. Same for a failed
+      // call, where devices stays null.
+      clearTimeout(this._retryTimer);
+      this._retryTimer = null;
+      if ((devices === null || devices.length === 0) && attempt < EMPTY_RETRY_DELAYS.length) {
+        this._retryTimer = setTimeout(
+          () => this._fetchDevices(attempt + 1),
+          EMPTY_RETRY_DELAYS[attempt],
+        );
       }
     }
 
