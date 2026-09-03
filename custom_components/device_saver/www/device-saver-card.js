@@ -49,13 +49,37 @@
 
     setConfig(config) {
       this.config = config;
-      this._dsEntity = config.entity || "sensor.down_devices";
+      // Left unresolved on purpose: which entity exists depends on when the
+      // integration was installed, and states aren't available yet here.
+      this._dsEntity = config.entity || null;
       this._msEntity = config.matter_entity !== undefined ? config.matter_entity : "sensor.matter_saver_devices";
+    }
+
+    /*
+     * Find the Device Saver summary sensor.
+     *
+     * Installations predating 1.1.0 kept the short `sensor.down_devices`;
+     * everything since carries the service device's prefix. Hardcoding either
+     * one leaves the other staring at "entity not found", so try both and then
+     * fall back to identifying the sensor by its attributes, which also covers
+     * a user who renamed it.
+     */
+    _resolveEntity(hass) {
+      for (const candidate of ["sensor.device_saver_down_devices", "sensor.down_devices"]) {
+        if (hass.states[candidate]) return candidate;
+      }
+      for (const eid of Object.keys(hass.states)) {
+        if (!eid.startsWith("sensor.")) continue;
+        const attrs = hass.states[eid].attributes;
+        if (attrs.down_count !== undefined && attrs.gated_count !== undefined) return eid;
+      }
+      return null;
     }
 
     set hass(hass) {
       this._hass = hass;
-      const dsState = hass.states[this._dsEntity];
+      if (!this._dsEntity) this._dsEntity = this._resolveEntity(hass);
+      const dsState = this._dsEntity ? hass.states[this._dsEntity] : null;
       const msState = this._msEntity ? hass.states[this._msEntity] : null;
       // Signature based only on state + down_count (not the full attribute blob),
       // so we don't re-render on unrelated attribute noise.
@@ -64,8 +88,13 @@
                   (msState ? `${msState.state}` : "");
       if (!this._initialized) {
         this._fullRender();
-        this._initialized = true;
-        this._fetchDevices();
+        // Only settle once the entity actually exists. Right after a restart it
+        // may not yet, and marking the card initialised then left it stuck on
+        // "entity not found" until the page was reloaded.
+        if (dsState) {
+          this._initialized = true;
+          this._fetchDevices();
+        }
       } else if (sig !== this._lastStateSig) {
         this._lastStateSig = sig;
         this._fetchDevices();
@@ -104,9 +133,12 @@
     }
 
     _fullRender() {
-      const dsState = this._hass.states[this._dsEntity];
+      const dsState = this._dsEntity ? this._hass.states[this._dsEntity] : null;
       if (!dsState) {
-        this.innerHTML = `<ha-card header="Device Saver"><div class="card-content">Entity not found: ${this._dsEntity}</div></ha-card>`;
+        const what = this._dsEntity
+          ? `Entity not found: ${this._escHtml(this._dsEntity)}`
+          : "Device Saver sensor not found yet — waiting for the integration to start.";
+        this.innerHTML = `<ha-card header="Device Saver"><div class="card-content">${what}</div></ha-card>`;
         return;
       }
       this._admin = !!(this._hass.user && this._hass.user.is_admin);
