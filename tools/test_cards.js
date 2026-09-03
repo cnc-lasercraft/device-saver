@@ -109,7 +109,50 @@ for (const f of ["device-saver-card.js", "device-saver-settings-card.js", "devic
 }
 window.dispatchEvent(new window.Event("load"));
 
+// The panel builds cards through the frontend's card helpers. Stub them the way
+// the real ones behave: custom: types become their element, built-ins a node we
+// can identify.
+for (const tag of ["matter-saver-card", "matter-saver-log-card", "matter-saver-topology-card",
+                   "matter-saver-mesh-card", "herold-log-card", "herold-admin-card"]) {
+  window.eval(`customElements.define(${JSON.stringify(tag)}, class extends HTMLElement {
+    setConfig(c) { this.config = c; }
+    set hass(h) { this._hass = h; }
+  });`);
+}
+window.loadCardHelpers = async () => ({
+  createCardElement: async (config) => {
+    if (typeof config.type === "string" && config.type.startsWith("custom:")) {
+      const el = window.document.createElement(config.type.slice(7));
+      if (el.setConfig) el.setConfig(config);
+      return el;
+    }
+    const el = window.document.createElement("div");
+    el.dataset.type = config.type;
+    return el;
+  },
+});
+
+const MATTER_STATES = {
+  "sensor.matter_saver_devices": { state: "42", attributes: { devices: [] } },
+  "sensor.matter_saver_online": { state: "40", attributes: {} },
+  "sensor.matter_saver_offline": { state: "2", attributes: {} },
+  "sensor.matter_saver_activity_log": { state: "ok", attributes: {} },
+};
+const HEROLD_STATES = {
+  "sensor.herold_letzte_meldung": { state: "2026-09-03", attributes: {} },
+  "sensor.herold_meldungen_heute": { state: "7", attributes: {} },
+};
+
 const tick = () => new Promise((r) => setTimeout(r, 0));
+const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
+
+function mountPanel(hass) {
+  const el = mount("device-saver-panel");
+  el.panel = { url_path: "device-saver-hub" };
+  el.hass = hass;
+  return el;
+}
+const tabIds = (el) => [...el.querySelectorAll(".dsp-tab")].map((b) => b.dataset.tab);
 
 // jsdom (nwsapi) resolves "#id" through document.getElementById and then checks
 // containment, so a second card carrying the same element ids resolves to null.
@@ -384,55 +427,110 @@ function mount(tag) {
   console.log("\ndevice-saver-panel");
   check("registered", !!window.customElements.get("device-saver-panel"));
 
-  const cp = [];
-  const hp = makeHass(cp);
-  const panel = mount("device-saver-panel");
-  panel.panel = { url_path: "device-saver-hub" };
-  panel.narrow = false;
-  panel.hass = hp;
-  await tick(); await tick(); await tick();
-
-  check("chrome rendered", !!panel.querySelector(".dsp-bar"));
-  check("both tabs for admin", panel.querySelectorAll(".dsp-tab").length === 2,
-    String(panel.querySelectorAll(".dsp-tab").length));
+  // neither companion installed
+  const panel = mountPanel(makeHass([]));
+  await settle();
+  check("chrome rendered", !!panel.querySelector(".dsp-head"));
+  check("bare install shows only its own tabs",
+    tabIds(panel).join(",") === "devices,settings", tabIds(panel).join(","));
   check("device card mounted", !!panel.querySelector("device-saver-card"));
   check("device card got hass", !!panel.querySelector("device-saver-card").querySelector("#ds-tbody"));
   check("hamburger hidden when wide", !panel.querySelector("#dsp-menu").classList.contains("show"));
   panel.narrow = true;
   check("hamburger shown when narrow", panel.querySelector("#dsp-menu").classList.contains("show"));
 
-  // switching tabs mounts the settings card lazily and updates the URL
-  const settingsTab = [...panel.querySelectorAll(".dsp-tab")].find((b) => b.dataset.tab === "settings");
-  settingsTab.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
-  await tick(); await tick(); await tick();
+  // switching tabs mounts lazily and updates the URL
+  [...panel.querySelectorAll(".dsp-tab")].find((b) => b.dataset.tab === "settings")
+    .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await settle();
   check("settings card mounted on demand", !!panel.querySelector("device-saver-settings-card"));
   check("url follows the tab", window.location.pathname === "/device-saver-hub/settings",
     window.location.pathname);
-  check("device card hidden, settings shown",
-    panel.querySelector("device-saver-card").classList.contains("dsp-hidden") &&
-    !panel.querySelector("device-saver-settings-card").classList.contains("dsp-hidden"));
+  check("previous tab hidden, new one shown",
+    panel.querySelector('[data-pane="devices"]').classList.contains("dsp-hidden") &&
+    !panel.querySelector('[data-pane="settings"]').classList.contains("dsp-hidden"));
 
-  // deep link straight into a tab
-  const panel2 = mount("device-saver-panel");
-  panel2.panel = { url_path: "device-saver-hub" };
-  panel2.route = { path: "/settings" };
-  panel2.hass = makeHass([]);
-  await tick(); await tick(); await tick();
-  check("route selects the tab",
-    [...panel2.querySelectorAll(".dsp-tab")].find((b) => b.classList.contains("active")).dataset.tab === "settings");
+  // Matter Saver installed -> its four views appear
+  const hMatter = makeHass([]);
+  Object.assign(hMatter.states, MATTER_STATES);
+  const panelM = mountPanel(hMatter);
+  await settle();
+  check("matter tabs appear when matter-saver is installed",
+    tabIds(panelM).join(",") === "devices,matter,log,topology,mesh,settings",
+    tabIds(panelM).join(","));
 
-  // non-admin gets the device list only, with no tab bar
-  const panel3 = mount("device-saver-panel");
-  const hp3 = makeHass([]);
-  hp3.user = { is_admin: false };
-  panel3.panel = { url_path: "device-saver-hub" };
-  panel3.hass = hp3;
-  await tick(); await tick(); await tick();
-  check("non-admin has no settings tab",
-    ![...panel3.querySelectorAll(".dsp-tab")].some((b) => b.dataset.tab === "settings"));
-  check("tab bar hidden with a single tab",
-    panel3.querySelector("#dsp-tabs").classList.contains("dsp-hidden"));
-  check("non-admin still gets the device list", !!panel3.querySelector("device-saver-card"));
+  [...panelM.querySelectorAll(".dsp-tab")].find((b) => b.dataset.tab === "matter")
+    .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await settle();
+  const matterPane = panelM.querySelector('[data-pane="matter"]');
+  check("matter tab renders the stacked layout",
+    !!matterPane && matterPane.firstElementChild.dataset.type === "vertical-stack",
+    matterPane && matterPane.innerHTML.slice(0, 60));
+
+  [...panelM.querySelectorAll(".dsp-tab")].find((b) => b.dataset.tab === "topology")
+    .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await settle();
+  check("topology tab renders its custom card",
+    !!panelM.querySelector("matter-saver-topology-card"));
+  check("topology card got its entity",
+    panelM.querySelector("matter-saver-topology-card").config.entity === "sensor.matter_saver_devices");
+
+  // Herold installed -> its two views appear, admin one gated
+  const hHerold = makeHass([]);
+  Object.assign(hHerold.states, HEROLD_STATES);
+  const panelH = mountPanel(hHerold);
+  await settle();
+  check("herold tabs appear when herold is installed",
+    tabIds(panelH).join(",") === "devices,herold,herold-admin,settings",
+    tabIds(panelH).join(","));
+
+  const hHeroldUser = makeHass([]);
+  Object.assign(hHeroldUser.states, HEROLD_STATES);
+  hHeroldUser.user = { is_admin: false };
+  const panelHU = mountPanel(hHeroldUser);
+  await settle();
+  check("non-admin sees herold log but not its admin view",
+    tabIds(panelHU).join(",") === "devices,herold", tabIds(panelHU).join(","));
+
+  // both installed, mirroring the hand-made dashboard
+  const hBoth = makeHass([]);
+  Object.assign(hBoth.states, MATTER_STATES, HEROLD_STATES);
+  const panelB = mountPanel(hBoth);
+  await settle();
+  check("both companions give the full tab set",
+    tabIds(panelB).join(",") === "devices,matter,log,topology,mesh,herold,herold-admin,settings",
+    tabIds(panelB).join(","));
+
+  // a companion that finishes loading after the panel did
+  const hLate = makeHass([]);
+  const panelL = mountPanel(hLate);
+  await settle();
+  check("late companion absent at first", tabIds(panelL).join(",") === "devices,settings");
+  Object.assign(hLate.states, HEROLD_STATES);
+  panelL.hass = hLate;
+  await settle();
+  check("late companion picked up on the next update",
+    tabIds(panelL).join(",") === "devices,herold,herold-admin,settings",
+    tabIds(panelL).join(","));
+
+  // deep link straight into a companion tab
+  const hDeep = makeHass([]);
+  Object.assign(hDeep.states, MATTER_STATES);
+  const panelD = mount("device-saver-panel");
+  panelD.panel = { url_path: "device-saver-hub" };
+  panelD.route = { path: "/mesh" };
+  panelD.hass = hDeep;
+  await settle();
+  check("route selects a companion tab",
+    [...panelD.querySelectorAll(".dsp-tab")].find((b) => b.classList.contains("active")).dataset.tab === "mesh");
+
+  // a tab whose card never loads must not hang the panel
+  const hMissing = makeHass([]);
+  Object.assign(hMissing.states, { "sensor.herold_letzte_meldung": { state: "x", attributes: {} } });
+  const panelX = mountPanel(hMissing);
+  await settle();
+  check("tab bar hidden only when a single tab remains",
+    !panelX.querySelector("#dsp-tabs").classList.contains("dsp-hidden"));
 
   console.log(`\n${failures ? failures + " FAILURES" : "all checks passed"}`);
   process.exit(failures ? 1 : 0);

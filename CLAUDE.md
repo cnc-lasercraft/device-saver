@@ -98,6 +98,27 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
   `_wantedTab` geparkt und erst angewandt, wenn feststeht, ob der Nutzer Admin ist —
   sonst filtert `_visibleTabs()` den Settings-Tab weg und der Deep-Link geht verloren.
 
+## Panel-Tabs für Begleiter-Integrationen (v1.4.0)
+- `TAB_SPECS` in `device-saver-panel.js` ist eine deklarative Liste; jeder Tab hält
+  **normale Lovelace-Kartenkonfigurationen**, gerendert über `window.loadCardHelpers()`
+  → `createCardElement()`. Nur so lassen sich eingebaute Karten (die drei `tile` auf dem
+  Matter-Tab) neben Custom Cards zeigen. `loadCardHelpers` ist ein etablierter, aber
+  **nicht zugesicherter** Frontend-Einstiegspunkt — darum ein Fallback auf
+  `createElement` für `custom:`-Typen.
+- Erkennung über Entities, nicht über `customElements.get()`: konsistent mit der
+  Geräte-Karte (die Matter Saver an `sensor.matter_saver_devices` erkennt) und immun
+  gegen den Registry-Polyfill-Fallstrick. `hasPrefix()` toleriert umbenannte Entities.
+- Tabs: Matter Saver → Matter Status / Aktivität / Topology / Mesh (Aufbau 1:1 aus dem
+  Dashboard des Users übernommen). Herold → Herold + Herold Verwaltung (letzteres admin-only).
+- `_syncTabsIfChanged()` wertet die Tab-Liste bei jedem `hass`-Update neu aus, aber nur die
+  Signatur — eine Begleiter-Integration, die nach dem Panel fertig lädt, taucht dadurch auf,
+  ohne dass bei jedem State-Change neu gerendert wird.
+- **Kopplungsrisiko bewusst eingegangen:** device_saver kennt die Kartennamen und Entity-IDs
+  von matter-saver und herold fest. Benennt eines der beiden etwas um, bricht der Tab.
+  Bestand vorher schon bei den Matter-Spalten der Geräteliste.
+- Inhalts-Container tragen `data-pane`, die Tab-Knöpfe `data-tab` — nicht dasselbe
+  Attribut für beides, sonst ist der DOM mehrdeutig.
+
 ## Karten-Entity-Auflösung (v1.3.0)
 - `device-saver-card` ohne `entity:` löste bisher fest auf `sensor.down_devices` auf —
   das ist die **Legacy-ID dieser Instanz**. Neuinstallationen seit v1.1.0 heissen
@@ -128,7 +149,7 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
 
 ## Tests
 - `tools/test_cards.js` — headless jsdom-Smoke-Test beider Karten **und des Panels**
-  (77 Checks: Rendering, Zeilenmenü, Gate-Validierung, Dirty-State, Save-Payload,
+  (92 Checks: Rendering, Zeilenmenü, Gate-Validierung, Dirty-State, Save-Payload,
   Admin-Gating, Entity-Auflösung, Panel-Tabs/Deep-Link).
   `npm install jsdom && node tools/test_cards.js`. Liegt ausserhalb `custom_components/`.
 - **jsdom-Fallstrick:** dessen `querySelector("#id")` löst intern über `document.getElementById`

@@ -129,8 +129,21 @@ actions:
 ## The sidebar panel
 
 The integration registers its own sidebar entry, so a fresh install has a working UI
-immediately. It carries the device list and — for administrators — the settings, as two
-tabs; each tab is deep-linkable (`/device-saver/settings`).
+immediately. It carries the device list and — for administrators — the settings, as tabs;
+each tab is deep-linkable (`/device-saver/settings`).
+
+**Companion integrations add their own tabs.** The panel checks which of them are actually
+installed and shows the matching views, laid out as a dashboard would:
+
+| Installed | Tabs added |
+| --- | --- |
+| [Matter Saver](https://github.com/cnc-lasercraft/matter-saver) | Matter Status (with its summary tiles), Aktivität, Topology, Mesh |
+| [Herold](https://github.com/cnc-lasercraft/ha-herold) | Herold, and Herold Verwaltung for administrators |
+
+Nothing is required: a tab exists only while the integration that owns its cards does, and
+one that finishes loading after the panel is picked up on the next update. Tabs hold
+ordinary Lovelace card configs rendered through the frontend's own card helpers, which is
+why built-in cards (those tiles) sit next to custom ones.
 
 **It never takes a path that is already in use.** Registration happens after Home
 Assistant has fully started, once every dashboard has claimed its own path. If the path is
