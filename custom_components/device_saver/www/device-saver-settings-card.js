@@ -24,6 +24,8 @@
     IGN_INT: "ignored_integrations",
     IGN_PLAT: "ignored_platforms",
     GATES: "power_gates",
+    PANEL: "panel",
+    PANEL_PATH: "panel_path",
   };
 
   // How long to wait after a save before re-reading. The write triggers a
@@ -68,6 +70,8 @@
       [OPT.IGN_PLAT]: [...(o[OPT.IGN_PLAT] || [])].sort(),
       [OPT.GATES]: Object.keys(o[OPT.GATES] || {}).sort()
         .map((k) => `${k}=${o[OPT.GATES][k]}`),
+      [OPT.PANEL]: !!o[OPT.PANEL],
+      [OPT.PANEL_PATH]: (o[OPT.PANEL_PATH] || "").trim(),
     });
   }
 
@@ -182,6 +186,7 @@
             ${this._sectionExcluded()}
             ${this._sectionGates()}
             ${this._sectionIgnored()}
+            ${this._sectionPanel()}
           </div>
           <div class="dss-foot">
             <span class="dss-status" id="dss-status"></span>
@@ -428,6 +433,31 @@
         </div>`;
     }
 
+    _sectionPanel() {
+      const d = this._draft;
+      return `
+        <div class="dss-sec">
+          <h3>Seitenleiste</h3>
+          <p class="dss-hint">Ein eigener Eintrag in der Seitenleiste mit Ger\u00e4teliste und
+          diesen Einstellungen \u2014 damit braucht es kein eigenes Dashboard. Ist der Pfad schon
+          belegt (typischerweise von einem gleichnamigen Dashboard), wird der Eintrag
+          \u00fcbersprungen statt \u00fcberschrieben; die Meldung steht im Protokoll.</p>
+          <div class="dss-row">
+            <label>Eintrag anzeigen</label>
+            <span class="dss-switch">
+              <input type="checkbox" id="dss-panel" ${d[OPT.PANEL] ? "checked" : ""}>
+              <span></span>
+            </span>
+          </div>
+          <div class="dss-row">
+            <label>Pfad</label>
+            <input type="text" class="dss-grow" id="dss-panel-path"
+                   placeholder="device-saver" value="${esc(d[OPT.PANEL_PATH] || "")}">
+            <span class="dss-unit" id="dss-panel-url">${esc("/" + (d[OPT.PANEL_PATH] || ""))}</span>
+          </div>
+        </div>`;
+    }
+
     // ---------------------------------------------------------------- wiring
 
     _wire() {
@@ -452,6 +482,24 @@
       });
       q("#dss-recovered").addEventListener("change", (e) => {
         this._draft[OPT.RECOVERED] = e.target.checked;
+        this._updateFoot();
+      });
+
+      q("#dss-panel").addEventListener("change", (e) => {
+        this._draft[OPT.PANEL] = e.target.checked;
+        this._updateFoot();
+      });
+      const panelPath = q("#dss-panel-path");
+      panelPath.addEventListener("input", () => {
+        // Mirrors _panel_path() in __init__.py; the backend rejects the rest.
+        const value = panelPath.value.trim().toLowerCase();
+        this._draft[OPT.PANEL_PATH] = value;
+        const url = q("#dss-panel-url");
+        if (url) {
+          const bad = value && !/^[a-z0-9][a-z0-9_-]*$/.test(value);
+          url.textContent = bad ? "ung\u00fcltig" : "/" + value;
+          url.style.color = bad ? "#f44336" : "";
+        }
         this._updateFoot();
       });
 

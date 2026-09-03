@@ -36,6 +36,17 @@ DEFAULT_IGNORED_PLATFORMS = ["battery_notes", "unifi"]
 # are still connecting and most entities are transiently unavailable
 STARTUP_GRACE_MIN = 5
 
+# Sidebar panel. A fresh install gets a sidebar entry without doing anything;
+# an already-taken path (a hand-made dashboard of the same name, typically) is
+# never overwritten — see panel.py.
+CONF_PANEL = "panel"
+DEFAULT_PANEL = True
+CONF_PANEL_PATH = "panel_path"
+DEFAULT_PANEL_PATH = "device-saver"
+PANEL_COMPONENT = "device-saver-panel"
+PANEL_MODULE = "device-saver-panel.js"
+PANEL_ICON = "mdi:lan-disconnect"
+
 PLATFORMS = ["binary_sensor", "sensor"]
 
 STATE_BAD = {"unavailable", "unknown"}

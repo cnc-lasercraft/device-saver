@@ -46,6 +46,8 @@ const SAVED_OPTIONS = {
   ignored_integrations: ["browser_mod", "unifi"],
   ignored_platforms: ["battery_notes", "unifi"],
   power_gates: { d_klima: "switch.shelly_klima" },
+  panel: true,
+  panel_path: "device-saver",
 };
 
 const DEVICES = [
@@ -80,6 +82,7 @@ function makeHass(calls) {
           defaults: {},
           gate_domains: ["switch", "input_boolean", "binary_sensor"],
           max_timeout_minutes: 10080,
+          panel_defaults: { panel: true, panel_path: "device-saver" },
           devices: JSON.parse(JSON.stringify(CATALOGUE)),
           gates: [{ device_id: "d_klima", device_name: "Klima DG",
                     gate_entity: "switch.shelly_klima", device_missing: false }],
@@ -95,11 +98,13 @@ function makeHass(calls) {
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   runScripts: "outside-only", pretendToBeVisual: true,
+  // pushState is refused against about:blank, so give the document a real origin
+  url: "http://home-assistant.local/device-saver-hub",
 });
 const { window } = dom;
 global.window = window;
 
-for (const f of ["device-saver-card.js", "device-saver-settings-card.js"]) {
+for (const f of ["device-saver-card.js", "device-saver-settings-card.js", "device-saver-panel.js"]) {
   window.eval(fs.readFileSync(`${WWW}/${f}`, "utf8"));
 }
 window.dispatchEvent(new window.Event("load"));
@@ -203,6 +208,40 @@ function mount(tag) {
     card2.querySelectorAll("#ds-thead th").length ===
     card2.querySelector("#ds-tbody tr:not(.ds-group-header)").querySelectorAll("td").length);
 
+  // entity resolution: a fresh install has the prefixed id, an old one does not
+  console.log("\nentity resolution");
+  for (const [label, id] of [
+    ["legacy install", "sensor.down_devices"],
+    ["fresh install", "sensor.device_saver_down_devices"],
+    ["renamed sensor", "sensor.geraete_ueberwachung"],
+  ]) {
+    const c = [];
+    const h = makeHass(c);
+    delete h.states["sensor.down_devices"];
+    h.states[id] = { state: "1", attributes: { down_count: 1, gated_count: 1 } };
+    const el = mount("device-saver-card");
+    el.setConfig({ matter_entity: null });
+    el.hass = h;
+    await tick(); await tick();
+    check(`resolves the sensor on a ${label}`,
+      !!el.querySelector("#ds-tbody") && el._dsEntity === id, `${el._dsEntity}`);
+  }
+
+  // no sensor yet (restart in progress) must not latch the error state
+  const cWait = [];
+  const hWait = makeHass(cWait);
+  delete hWait.states["sensor.down_devices"];
+  const waitCard = mount("device-saver-card");
+  waitCard.setConfig({ matter_entity: null });
+  waitCard.hass = hWait;
+  await tick();
+  check("waits instead of failing when the sensor is absent",
+    /waiting for the integration/.test(waitCard.textContent), waitCard.textContent.trim());
+  hWait.states["sensor.down_devices"] = { state: "1", attributes: { down_count: 1, gated_count: 1 } };
+  waitCard.hass = hWait;
+  await tick(); await tick();
+  check("recovers once the sensor appears", !!waitCard.querySelector("#ds-tbody"));
+
   // ------------------------------------------------------------------------
   console.log("\ndevice-saver-settings-card");
   check("registered", !!window.customElements.get("device-saver-settings-card"));
@@ -275,6 +314,21 @@ function mount(tag) {
   sc.querySelector("#dss-gate-add").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   check("bad gate domain refused", sc.querySelector("#dss-status").classList.contains("err"));
 
+  // panel section
+  check("panel toggle reflects config", sc.querySelector("#dss-panel").checked);
+  check("panel path prefilled", sc.querySelector("#dss-panel-path").value === "device-saver");
+  const pp = sc.querySelector("#dss-panel-path");
+  pp.value = "Device Saver!";
+  pp.dispatchEvent(new window.Event("input", { bubbles: true }));
+  check("invalid panel path flagged",
+    sc.querySelector("#dss-panel-url").textContent === "ungültig",
+    sc.querySelector("#dss-panel-url").textContent);
+  pp.value = "device-saver-hub";
+  pp.dispatchEvent(new window.Event("input", { bubbles: true }));
+  check("valid panel path shown as url",
+    sc.querySelector("#dss-panel-url").textContent === "/device-saver-hub",
+    sc.querySelector("#dss-panel-url").textContent);
+
   // save
   sc.querySelector("#dss-save").dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await tick(); await tick();
@@ -293,6 +347,8 @@ function mount(tag) {
       JSON.stringify([o.ignored_platforms, o.ignored_integrations]));
     check("timeouts are numbers",
       typeof o.timeout_critical_minutes === "number" && typeof o.timeout_slow_minutes === "number");
+    check("panel path saved", o.panel_path === "device-saver-hub", o.panel_path);
+    check("panel flag saved", o.panel === true);
   }
 
   // reset restores the server state
@@ -323,6 +379,60 @@ function mount(tag) {
   await tick(); await tick();
   check("non-admin sees a clear message",
     /Administratoren/.test(sc3.textContent), sc3.textContent.trim());
+
+  // ------------------------------------------------------------------------
+  console.log("\ndevice-saver-panel");
+  check("registered", !!window.customElements.get("device-saver-panel"));
+
+  const cp = [];
+  const hp = makeHass(cp);
+  const panel = mount("device-saver-panel");
+  panel.panel = { url_path: "device-saver-hub" };
+  panel.narrow = false;
+  panel.hass = hp;
+  await tick(); await tick(); await tick();
+
+  check("chrome rendered", !!panel.querySelector(".dsp-bar"));
+  check("both tabs for admin", panel.querySelectorAll(".dsp-tab").length === 2,
+    String(panel.querySelectorAll(".dsp-tab").length));
+  check("device card mounted", !!panel.querySelector("device-saver-card"));
+  check("device card got hass", !!panel.querySelector("device-saver-card").querySelector("#ds-tbody"));
+  check("hamburger hidden when wide", !panel.querySelector("#dsp-menu").classList.contains("show"));
+  panel.narrow = true;
+  check("hamburger shown when narrow", panel.querySelector("#dsp-menu").classList.contains("show"));
+
+  // switching tabs mounts the settings card lazily and updates the URL
+  const settingsTab = [...panel.querySelectorAll(".dsp-tab")].find((b) => b.dataset.tab === "settings");
+  settingsTab.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await tick(); await tick(); await tick();
+  check("settings card mounted on demand", !!panel.querySelector("device-saver-settings-card"));
+  check("url follows the tab", window.location.pathname === "/device-saver-hub/settings",
+    window.location.pathname);
+  check("device card hidden, settings shown",
+    panel.querySelector("device-saver-card").classList.contains("dsp-hidden") &&
+    !panel.querySelector("device-saver-settings-card").classList.contains("dsp-hidden"));
+
+  // deep link straight into a tab
+  const panel2 = mount("device-saver-panel");
+  panel2.panel = { url_path: "device-saver-hub" };
+  panel2.route = { path: "/settings" };
+  panel2.hass = makeHass([]);
+  await tick(); await tick(); await tick();
+  check("route selects the tab",
+    [...panel2.querySelectorAll(".dsp-tab")].find((b) => b.classList.contains("active")).dataset.tab === "settings");
+
+  // non-admin gets the device list only, with no tab bar
+  const panel3 = mount("device-saver-panel");
+  const hp3 = makeHass([]);
+  hp3.user = { is_admin: false };
+  panel3.panel = { url_path: "device-saver-hub" };
+  panel3.hass = hp3;
+  await tick(); await tick(); await tick();
+  check("non-admin has no settings tab",
+    ![...panel3.querySelectorAll(".dsp-tab")].some((b) => b.dataset.tab === "settings"));
+  check("tab bar hidden with a single tab",
+    panel3.querySelector("#dsp-tabs").classList.contains("dsp-hidden"));
+  check("non-admin still gets the device list", !!panel3.querySelector("device-saver-card"));
 
   console.log(`\n${failures ? failures + " FAILURES" : "all checks passed"}`);
   process.exit(failures ? 1 : 0);

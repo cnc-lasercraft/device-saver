@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -32,8 +33,13 @@ from .const import (
     DEFAULT_IGNORED_PLATFORMS,
     GATE_DOMAINS,
     MAX_TIMEOUT_MIN,
+    CONF_PANEL,
+    CONF_PANEL_PATH,
+    DEFAULT_PANEL,
+    DEFAULT_PANEL_PATH,
 )
 from .coordinator import DeviceSaverCoordinator
+from .panel import async_setup_panel
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -50,6 +56,19 @@ def _gate_entity(value: Any) -> str:
 
 _MINUTES = vol.All(vol.Coerce(int), vol.Range(min=1, max=MAX_TIMEOUT_MIN))
 
+_PANEL_PATH_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
+def _panel_path(value: Any) -> str:
+    """A sidebar path HA will accept, and that cannot collide by accident."""
+    path = cv.string(value).strip().lower()
+    if not _PANEL_PATH_RE.match(path):
+        raise vol.Invalid(
+            "panel path must start with a letter or digit and contain only "
+            "lowercase letters, digits, '-' or '_'"
+        )
+    return path
+
 # Only these keys may be written from the frontend, and only in these shapes —
 # the card is a client like any other, its payload is not to be trusted.
 _OPTIONS_SCHEMA = vol.Schema(
@@ -62,6 +81,8 @@ _OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_IGNORED_INTEGRATIONS): vol.All(cv.ensure_list, [cv.string]),
         vol.Optional(CONF_IGNORED_PLATFORMS): vol.All(cv.ensure_list, [cv.string]),
         vol.Optional(CONF_POWER_GATES): vol.Schema({cv.string: _gate_entity}),
+        vol.Optional(CONF_PANEL): cv.boolean,
+        vol.Optional(CONF_PANEL_PATH): _panel_path,
     }
 )
 
@@ -145,6 +166,10 @@ def _ws_get_config(hass: HomeAssistant, connection, msg) -> None:
             },
             "gate_domains": list(GATE_DOMAINS),
             "max_timeout_minutes": MAX_TIMEOUT_MIN,
+            "panel_defaults": {
+                CONF_PANEL: DEFAULT_PANEL,
+                CONF_PANEL_PATH: DEFAULT_PANEL_PATH,
+            },
             "devices": coordinator.device_catalogue(),
             "gates": coordinator.gate_catalogue(),
             "known": coordinator.known_domains(),
@@ -275,6 +300,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     domain_data[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    entry.async_on_unload(await async_setup_panel(hass, entry))
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
 

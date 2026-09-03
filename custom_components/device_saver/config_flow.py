@@ -20,6 +20,10 @@ from .const import (
     DEFAULT_IGNORED_PLATFORMS,
     GATE_DOMAINS,
     MAX_TIMEOUT_MIN,
+    CONF_PANEL,
+    CONF_PANEL_PATH,
+    DEFAULT_PANEL,
+    DEFAULT_PANEL_PATH,
 )
 
 
@@ -109,6 +113,13 @@ class DeviceSaverOptionsFlow(config_entries.OptionsFlow):
                 CONF_IGNORED_PLATFORMS,
                 default=current.get(CONF_IGNORED_PLATFORMS, DEFAULT_IGNORED_PLATFORMS),
             ): _tag_multi(current.get(CONF_IGNORED_PLATFORMS, DEFAULT_IGNORED_PLATFORMS)),
+            vol.Optional(
+                CONF_PANEL, default=current.get(CONF_PANEL, DEFAULT_PANEL)
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_PANEL_PATH,
+                default=current.get(CONF_PANEL_PATH, DEFAULT_PANEL_PATH),
+            ): selector.TextSelector(),
         })
         return self.async_show_form(step_id="settings", data_schema=schema)
 

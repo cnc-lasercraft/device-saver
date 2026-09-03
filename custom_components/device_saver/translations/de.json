@@ -34,7 +34,9 @@
           "notify_service": "Optionaler Notify-Service (z.B. notify.mobile_app_...)",
           "notify_recovered": "Auch bei Wiederherstellung benachrichtigen",
           "ignored_integrations": "Ignorierte Integrationen (Geräte, die nur dazu gehören, werden übersprungen)",
-          "ignored_platforms": "Ignorierte Plattformen (deren Entities zählen nicht für die Gesundheit)"
+          "ignored_platforms": "Ignorierte Plattformen (deren Entities zählen nicht für die Gesundheit)",
+          "panel": "Eintrag „Device Saver“ in der Seitenleiste anzeigen",
+          "panel_path": "Pfad des Seitenleisten-Eintrags (wird übersprungen, wenn schon belegt — z.B. von einem gleichnamigen Dashboard)"
         }
       },
       "add_gate": {

@@ -11,6 +11,7 @@ Most availability monitoring fails in the same two ways: it screams after a rest
 - **Power gates.** Map a device to the switch that feeds it. Gate off → the device is reported as *unpowered*, not *down*: no notification, no red count. See [Power gates](#power-gates).
 - **Startup grace.** For 5 minutes after a Home Assistant restart, no *new* devices are declared down. This is what stops the classic post-restart notification avalanche. Devices already down before the restart stay down, so nothing is silently "recovered".
 - **Connection types.** Devices are classified as Zigbee, Matter, HomeKit, WLAN, LAN, Solar or Other, so the dashboard can group an outage by transport — often the fastest way to see that it is one coordinator failing rather than nine devices.
+- **A sidebar entry**, registered automatically. Device list and settings are usable straight after setup — no dashboard to build first.
 - **Bundled Lovelace cards**, installed and registered automatically: a device list and a settings card that configures everything from the dashboard.
 
 ## Installation
@@ -23,7 +24,7 @@ Device Saver is in the HACS default catalogue.
 2. Restart Home Assistant.
 3. Settings → Devices & Services → **Add integration** → Device Saver.
 
-The Lovelace card ships inside the integration and registers itself. You do **not** need to add a resource under Settings → Dashboards → Resources.
+That's it — a **Device Saver** entry appears in the sidebar with the device list and the settings. The cards ship inside the integration and register themselves, so you do **not** need to add a resource under Settings → Dashboards → Resources, and you do not need to build a dashboard to get started.
 
 ### Manual
 
@@ -49,6 +50,8 @@ Set during initial setup, and changeable afterwards under **Configure → Settin
 | Notify on recovered | on | Whether recovery also sends a push. |
 | Ignored integrations | `browser_mod`, `unifi` | Devices belonging *exclusively* to these integrations are skipped. UniFi, for example, registers every network client as a device — those are not devices you control. |
 | Ignored platforms | `battery_notes`, `unifi` | Entities from these platforms are excluded from the health check because they keep reporting a static value even when the physical device is long gone, which would mask a real outage. |
+| Sidebar entry | on | Whether to register the panel. See [The sidebar panel](#the-sidebar-panel). |
+| Sidebar entry path | `device-saver` | The URL the panel lives at. |
 
 Options changes reload the config entry immediately.
 
@@ -123,6 +126,28 @@ actions:
       message: "{{ trigger.event.data.device_name }} is down"
 ```
 
+## The sidebar panel
+
+The integration registers its own sidebar entry, so a fresh install has a working UI
+immediately. It carries the device list and — for administrators — the settings, as two
+tabs; each tab is deep-linkable (`/device-saver/settings`).
+
+**It never takes a path that is already in use.** Registration happens after Home
+Assistant has fully started, once every dashboard has claimed its own path. If the path is
+taken — typically by a hand-made dashboard of the same name — the panel is skipped and
+says so in the log rather than overwriting it:
+
+```
+Device Saver: sidebar panel not registered, 'device-saver' is already in use
+(usually a dashboard of the same name). Pick another path in the Device Saver
+settings, or switch the panel off
+```
+
+Registering during setup instead would race the Lovelace component, and winning that race
+would silently cost a user their dashboard's sidebar entry. So the two settings — *Sidebar
+entry* and *Sidebar entry path* — let you run the panel alongside an existing dashboard,
+or switch it off entirely. Changing either applies immediately; no restart.
+
 ## The cards
 
 Both ship inside the integration and register themselves — no Lovelace resource to add.
@@ -136,6 +161,10 @@ type: custom:device-saver-card
 ```
 
 It lists every monitored device with its state, tier, connection type and time since last contact; it is sortable and filterable, groups problems by connection type, and shows gated devices separately as *unpowered*. If [Matter Saver](https://github.com/cnc-lasercraft/matter-saver) is installed, its data is picked up as well.
+
+`entity` is optional: left out, the card finds the summary sensor itself — the prefixed ID
+on installs since 1.1.0, the short one on older installs, and failing both, any sensor
+carrying the integration's attributes, which also covers a renamed one.
 
 Administrators additionally get a **⋮ row menu** per device: stop monitoring it, or set, change and
 remove its power gate. Non-admins do not see the column at all.

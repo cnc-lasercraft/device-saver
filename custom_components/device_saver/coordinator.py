@@ -37,6 +37,10 @@ from .const import (
     DEFAULT_IGNORED_INTEGRATIONS,
     CONF_IGNORED_PLATFORMS,
     DEFAULT_IGNORED_PLATFORMS,
+    CONF_PANEL,
+    CONF_PANEL_PATH,
+    DEFAULT_PANEL,
+    DEFAULT_PANEL_PATH,
     STARTUP_GRACE_MIN,
     STATE_BAD,
 )
@@ -255,6 +259,9 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                 self._cfg(CONF_IGNORED_PLATFORMS, DEFAULT_IGNORED_PLATFORMS) or []
             ),
             CONF_POWER_GATES: dict(self._cfg(CONF_POWER_GATES, {}) or {}),
+            CONF_PANEL: bool(self._cfg(CONF_PANEL, DEFAULT_PANEL)),
+            CONF_PANEL_PATH: self._cfg(CONF_PANEL_PATH, DEFAULT_PANEL_PATH)
+            or DEFAULT_PANEL_PATH,
         }
 
     @callback

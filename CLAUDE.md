@@ -75,9 +75,42 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
   ändern, entfernen). Nicht-Admins sehen die Spalte gar nicht; `_ws_get_devices` liefert dafür neu
   `gate_entity` mit.
 
+## Sidebar-Panel (v1.3.0)
+- `panel.py` registriert ein `panel_custom` mit `www/device-saver-panel.js` (Element
+  `device-saver-panel`, zwei Tabs: Geräte + Einstellungen, Settings nur für Admins).
+  Manifest braucht dafür `panel_custom` in `dependencies`.
+- **Registrierung läuft über `async_at_started`, nicht im Setup.** Grund: Dashboards
+  registrieren ihre Panels während des Starts; würde die Integration das Rennen gewinnen,
+  verlöre ein gleichnamiges Dashboard seinen Sidebar-Eintrag. Nach dem Start ist eine
+  Kollision nur noch *feststellbar* statt verursacht.
+- **Nie überschreiben:** `frontend.async_register_built_in_panel` wirft `ValueError`, wenn
+  der Pfad belegt ist und `update=False`. `panel.py` fängt das ab und loggt eine Warnung
+  mit dem Pfad. Die beiden anderen `ValueError` der Funktion (fehlende `module_url`,
+  Config kein Dict) können bei unserem Aufruf nicht auftreten — das `except` ist eindeutig.
+  Signaturen am 03.09.2026 gegen `home-assistant/core@dev` verifiziert.
+- Optionen `panel` (Default an) und `panel_path` (Default `device-saver`); Änderung wirkt
+  über den Entry-Reload sofort, kein Neustart. **Auf dieser Instanz: `device-saver-hub`**,
+  weil das eigene Dashboard `device-saver` belegt (und der Sidebar-Organizer-Badge daran hängt).
+- Das Panel wartet mit `customElements.whenDefined()`, bevor es eine Karte erzeugt —
+  eine `hass`-Zuweisung vor dem Upgrade würde als eigene Property den Setter der Klasse
+  verdecken.
+- `set route` kann **vor** `set hass` kommen. Der gewünschte Tab wird darum in
+  `_wantedTab` geparkt und erst angewandt, wenn feststeht, ob der Nutzer Admin ist —
+  sonst filtert `_visibleTabs()` den Settings-Tab weg und der Deep-Link geht verloren.
+
+## Karten-Entity-Auflösung (v1.3.0)
+- `device-saver-card` ohne `entity:` löste bisher fest auf `sensor.down_devices` auf —
+  das ist die **Legacy-ID dieser Instanz**. Neuinstallationen seit v1.1.0 heissen
+  `sensor.device_saver_down_devices` und bekamen „Entity not found". `_resolveEntity()`
+  probiert jetzt beide und fällt danach auf „irgendein Sensor mit `down_count` +
+  `gated_count`" zurück (fängt auch umbenannte Entities).
+- Ausserdem setzt die Karte `_initialized` erst, wenn die Entity wirklich da ist. Vorher
+  blieb sie nach einem Restart dauerhaft im Fehlerzustand, bis die Seite neu geladen wurde.
+
 ## Tests
-- `tools/test_cards.js` — headless jsdom-Smoke-Test beider Karten (54 Checks: Rendering,
-  Zeilenmenü, Gate-Validierung, Dirty-State, Save-Payload, Admin-Gating).
+- `tools/test_cards.js` — headless jsdom-Smoke-Test beider Karten **und des Panels**
+  (77 Checks: Rendering, Zeilenmenü, Gate-Validierung, Dirty-State, Save-Payload,
+  Admin-Gating, Entity-Auflösung, Panel-Tabs/Deep-Link).
   `npm install jsdom && node tools/test_cards.js`. Liegt ausserhalb `custom_components/`.
 - **jsdom-Fallstrick:** dessen `querySelector("#id")` löst intern über `document.getElementById`
   auf und prüft dann nur die Zugehörigkeit — zwei Karten mit gleichen Element-IDs im selben
