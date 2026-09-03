@@ -107,6 +107,25 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
 - Ausserdem setzt die Karte `_initialized` erst, wenn die Entity wirklich da ist. Vorher
   blieb sie nach einem Restart dauerhaft im Fehlerzustand, bis die Seite neu geladen wurde.
 
+## Options-Hygiene (v1.3.1)
+- `_prune_options()` in `__init__.py` wirft beim Setup alle Options-Keys weg, die die
+  Integration nicht kennt. Anlass: In dieser Instanz lagen die 7 Power-Gate-Zuordnungen
+  **zusätzlich flach auf oberster Ebene** der Options (`<device_id>: <entity_id>`),
+  dupliziert aus `power_gates` — Altlast eines früheren Schreibpfads. Gelesen wurden sie
+  nie (`_cfg()` schlägt nur bekannte Namen nach), aber sie sammelten sich an.
+- **`MANAGED_OPTION_KEYS` wird aus `_OPTIONS_SCHEMA` abgeleitet**, nicht ein zweites Mal
+  hingeschrieben — sonst driften Schema und Whitelist auseinander und ein neuer Options-Key
+  würde beim nächsten Start stillschweigend gelöscht. `getattr(key, "schema", key)` holt den
+  Namen aus dem voluptuous-Marker (`Marker.__slots__` enthält `schema`, am 03.09.2026
+  gegen voluptuous@master verifiziert).
+- Läuft **vor** `entry.add_update_listener()`: sonst löste `async_update_entry()` einen
+  Reload des gerade startenden Entries aus. Eine Schleife ist ausgeschlossen, weil der
+  zweite Durchlauf nichts mehr zu entfernen findet.
+- Nebenwirkung bei einem Downgrade: eine ältere Version kennt neuere Keys nicht und würde
+  sie beim Start entfernen. Bewusst in Kauf genommen; das Log nennt jeden entfernten Key.
+- Weder Options-Flow noch die Settings-Karte könnten das leisten — beide mergen
+  (`{**entry.options, **changes}`) und können darum nur schreiben, nie löschen.
+
 ## Tests
 - `tools/test_cards.js` — headless jsdom-Smoke-Test beider Karten **und des Panels**
   (77 Checks: Rendering, Zeilenmenü, Gate-Validierung, Dirty-State, Save-Payload,

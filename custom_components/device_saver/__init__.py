@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,8 @@ from .const import (
 )
 from .coordinator import DeviceSaverCoordinator
 from .panel import async_setup_panel
+
+LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -85,6 +88,40 @@ _OPTIONS_SCHEMA = vol.Schema(
         vol.Optional(CONF_PANEL_PATH): _panel_path,
     }
 )
+
+# Derived from the schema rather than written out a second time, so the two can
+# never drift apart: what the integration accepts *is* what it keeps.
+MANAGED_OPTION_KEYS = frozenset(
+    getattr(key, "schema", key) for key in _OPTIONS_SCHEMA.schema
+)
+
+
+@callback
+def _prune_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Drop option keys the integration does not know.
+
+    An older write path flattened the power_gates map into the top level of
+    `options`, leaving one stray `<device_id>: <entity_id>` pair per gated
+    device. Nothing ever read them — every lookup goes by known name — but they
+    accumulate and make the entry unreadable.
+
+    Called before the update listener is attached, so it cannot trigger a reload
+    of the entry being set up; and since the second pass finds nothing left to
+    drop, it cannot loop either.
+    """
+    stray = sorted(set(entry.options) - MANAGED_OPTION_KEYS)
+    if not stray:
+        return
+    LOGGER.info(
+        "Device Saver: removing %d unknown option key(s) left over from an "
+        "earlier version: %s",
+        len(stray),
+        ", ".join(stray),
+    )
+    hass.config_entries.async_update_entry(
+        entry,
+        options={k: v for k, v in entry.options.items() if k in MANAGED_OPTION_KEYS},
+    )
 
 
 @callback
@@ -284,6 +321,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    _prune_options(hass, entry)
+
     coordinator = DeviceSaverCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
 
