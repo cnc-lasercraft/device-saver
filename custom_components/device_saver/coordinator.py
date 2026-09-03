@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -11,6 +12,7 @@ from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import (
+    DeviceEntry,
     DeviceEntryType,
     EVENT_DEVICE_REGISTRY_UPDATED,
 )
@@ -76,6 +78,7 @@ class DeviceHealth:
     timeout_label: str
     connection_type: str
     gated: bool = False
+    gate_entity: str | None = None
 
 
 class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
@@ -117,16 +120,8 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
             return self.entry.options[key]
         return self.entry.data.get(key, default)
 
-    def _build_cache(self) -> None:
-        """Build device/entity/tier caches. Called once at startup."""
-        excluded = set(self._cfg(CONF_DEVICES_EXCLUDED, []))
-        ignored_integrations = set(
-            self._cfg(CONF_IGNORED_INTEGRATIONS, DEFAULT_IGNORED_INTEGRATIONS) or []
-        )
-        ignored_platforms = set(
-            self._cfg(CONF_IGNORED_PLATFORMS, DEFAULT_IGNORED_PLATFORMS) or []
-        )
-
+    def _device_entity_map(self, ignored_platforms: set[str]) -> dict[str, list[str]]:
+        """device_id -> enabled entity_ids, minus the ignored platforms."""
         device_entities: dict[str, list[str]] = {}
         for ent in self._er.entities.values():
             if not ent.device_id or ent.disabled_by:
@@ -134,8 +129,10 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
             if ent.platform in ignored_platforms:
                 continue
             device_entities.setdefault(ent.device_id, []).append(ent.entity_id)
+        return device_entities
 
-        # Single O(n) pass to find all devices with a battery entity
+    def _battery_devices(self) -> set[str]:
+        """Single O(n) pass to find all devices with a battery entity."""
         battery_devices: set[str] = set()
         for ent in self._er.entities.values():
             if not ent.device_id:
@@ -143,14 +140,20 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
             dc = ent.device_class or ent.original_device_class
             if dc == "battery":
                 battery_devices.add(ent.device_id)
+        return battery_devices
 
-        device_tier: dict[str, str] = {}
-        device_conn: dict[str, str] = {}
-        entity_to_device: dict[str, str] = {}
+    def _candidate_devices(
+        self,
+        device_entities: dict[str, list[str]],
+        ignored_integrations: set[str],
+    ) -> Iterator[DeviceEntry]:
+        """Devices eligible for monitoring. The exclusion list is NOT applied here.
 
+        Shared by the cache build (which excludes on top) and the settings card,
+        which has to offer excluded devices too — otherwise nothing could ever be
+        un-excluded.
+        """
         for dev in self._dr.devices.values():
-            if dev.id in excluded:
-                continue
             if dev.entry_type == DeviceEntryType.SERVICE:
                 continue
             # Skip devices that belong exclusively to ignored integrations (e.g. UniFi
@@ -162,38 +165,58 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                     ce_domains.add(ce.domain)
             if ce_domains and ce_domains <= ignored_integrations:
                 continue
-            entity_ids = device_entities.get(dev.id, [])
-            if not entity_ids:
+            if not device_entities.get(dev.id):
+                continue
+            yield dev
+
+    def _connection_type(self, dev: DeviceEntry) -> str:
+        """Determine connection type from the device's config entries."""
+        conn = "Andere"
+        for ce_id in dev.config_entries:
+            ce = self.hass.config_entries.async_get_entry(ce_id)
+            if not ce:
+                continue
+            if ce.domain == "mqtt":
+                # Only Zigbee2MQTT devices are Zigbee; generic MQTT discovery
+                # devices (e.g. WiCAN) count as WLAN, overridable by a more
+                # specific config entry on the same device
+                if any(
+                    len(idf) >= 2 and idf[0] == "mqtt"
+                    and str(idf[1]).startswith("zigbee2mqtt")
+                    for idf in dev.identifiers
+                ):
+                    return "Zigbee"
+                conn = "WLAN"
+                continue
+            if ce.domain in CONNECTION_TYPE_MAP:
+                return CONNECTION_TYPE_MAP[ce.domain]
+        return conn
+
+    def _build_cache(self) -> None:
+        """Build device/entity/tier caches. Called once at startup."""
+        excluded = set(self._cfg(CONF_DEVICES_EXCLUDED, []))
+        ignored_integrations = set(
+            self._cfg(CONF_IGNORED_INTEGRATIONS, DEFAULT_IGNORED_INTEGRATIONS) or []
+        )
+        ignored_platforms = set(
+            self._cfg(CONF_IGNORED_PLATFORMS, DEFAULT_IGNORED_PLATFORMS) or []
+        )
+
+        device_entities = self._device_entity_map(ignored_platforms)
+        battery_devices = self._battery_devices()
+
+        device_tier: dict[str, str] = {}
+        device_conn: dict[str, str] = {}
+        entity_to_device: dict[str, str] = {}
+
+        for dev in self._candidate_devices(device_entities, ignored_integrations):
+            if dev.id in excluded:
                 continue
 
-            tier = "slow" if dev.id in battery_devices else "critical"
-            device_tier[dev.id] = tier
+            device_tier[dev.id] = "slow" if dev.id in battery_devices else "critical"
+            device_conn[dev.id] = self._connection_type(dev)
 
-            # Determine connection type from config entries
-            conn = "Andere"
-            for ce_id in dev.config_entries:
-                ce = self.hass.config_entries.async_get_entry(ce_id)
-                if not ce:
-                    continue
-                if ce.domain == "mqtt":
-                    # Only Zigbee2MQTT devices are Zigbee; generic MQTT discovery
-                    # devices (e.g. WiCAN) count as WLAN, overridable by a more
-                    # specific config entry on the same device
-                    if any(
-                        len(idf) >= 2 and idf[0] == "mqtt"
-                        and str(idf[1]).startswith("zigbee2mqtt")
-                        for idf in dev.identifiers
-                    ):
-                        conn = "Zigbee"
-                        break
-                    conn = "WLAN"
-                    continue
-                if ce.domain in CONNECTION_TYPE_MAP:
-                    conn = CONNECTION_TYPE_MAP[ce.domain]
-                    break
-            device_conn[dev.id] = conn
-
-            for eid in entity_ids:
+            for eid in device_entities[dev.id]:
                 entity_to_device[eid] = dev.id
 
         self._device_tier = device_tier
@@ -205,6 +228,124 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
         }
         self._entity_to_device = entity_to_device
         LOGGER.debug("Device Saver cache built: %d devices", len(device_tier))
+
+    @callback
+    def effective_options(self) -> dict[str, Any]:
+        """The config as the coordinator actually reads it (options over data).
+
+        The settings card writes every one of these keys back into `options`,
+        which incidentally retires the stale `data` copy from the initial setup.
+        """
+        return {
+            CONF_DEVICES_EXCLUDED: list(self._cfg(CONF_DEVICES_EXCLUDED, []) or []),
+            CONF_TIMEOUT_CRIT_MIN: int(
+                self._cfg(CONF_TIMEOUT_CRIT_MIN, DEFAULT_TIMEOUT_CRIT_MIN)
+            ),
+            CONF_TIMEOUT_SLOW_MIN: int(
+                self._cfg(CONF_TIMEOUT_SLOW_MIN, DEFAULT_TIMEOUT_SLOW_MIN)
+            ),
+            CONF_NOTIFY_SERVICE: self._cfg(CONF_NOTIFY_SERVICE, "") or "",
+            CONF_NOTIFY_RECOVERED: bool(
+                self._cfg(CONF_NOTIFY_RECOVERED, DEFAULT_NOTIFY_RECOVERED)
+            ),
+            CONF_IGNORED_INTEGRATIONS: list(
+                self._cfg(CONF_IGNORED_INTEGRATIONS, DEFAULT_IGNORED_INTEGRATIONS) or []
+            ),
+            CONF_IGNORED_PLATFORMS: list(
+                self._cfg(CONF_IGNORED_PLATFORMS, DEFAULT_IGNORED_PLATFORMS) or []
+            ),
+            CONF_POWER_GATES: dict(self._cfg(CONF_POWER_GATES, {}) or {}),
+        }
+
+    @callback
+    def device_catalogue(self) -> list[dict[str, Any]]:
+        """Every device the settings UI may offer — excluded ones included.
+
+        Each entry carries a `status`:
+          ok             — a monitoring candidate
+          not_monitored  — excluded, but would be skipped anyway (belongs only to
+                           an ignored integration, or has no usable entities)
+          missing        — excluded, but no such device in the registry any more
+        The last two used to be findable only by hand-diffing the options against
+        core.device_registry.
+        """
+        excluded = set(self._cfg(CONF_DEVICES_EXCLUDED, []) or [])
+        ignored_integrations = set(
+            self._cfg(CONF_IGNORED_INTEGRATIONS, DEFAULT_IGNORED_INTEGRATIONS) or []
+        )
+        ignored_platforms = set(
+            self._cfg(CONF_IGNORED_PLATFORMS, DEFAULT_IGNORED_PLATFORMS) or []
+        )
+
+        device_entities = self._device_entity_map(ignored_platforms)
+        battery_devices = self._battery_devices()
+
+        items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for dev in self._candidate_devices(device_entities, ignored_integrations):
+            seen.add(dev.id)
+            items.append(
+                {
+                    "device_id": dev.id,
+                    "name": dev.name_by_user or dev.name or dev.id,
+                    "manufacturer": dev.manufacturer,
+                    "model": dev.model,
+                    "connection_type": self._connection_type(dev),
+                    "tier": "slow" if dev.id in battery_devices else "critical",
+                    "entity_count": len(device_entities.get(dev.id, [])),
+                    "excluded": dev.id in excluded,
+                    "status": "ok",
+                }
+            )
+
+        for device_id in sorted(excluded - seen):
+            dev = self._dr.devices.get(device_id)
+            items.append(
+                {
+                    "device_id": device_id,
+                    "name": (dev.name_by_user or dev.name or device_id) if dev else device_id,
+                    "manufacturer": dev.manufacturer if dev else None,
+                    "model": dev.model if dev else None,
+                    "connection_type": self._connection_type(dev) if dev else "Andere",
+                    "tier": "critical",
+                    "entity_count": len(device_entities.get(device_id, [])),
+                    "excluded": True,
+                    "status": "not_monitored" if dev else "missing",
+                }
+            )
+
+        return items
+
+    @callback
+    def known_domains(self) -> dict[str, list[str]]:
+        """Integration domains and entity platforms actually present in this
+        installation, so the ignore lists can be picked instead of typed."""
+        return {
+            "integrations": sorted(
+                {ce.domain for ce in self.hass.config_entries.async_entries()}
+            ),
+            "platforms": sorted(
+                {ent.platform for ent in self._er.entities.values() if ent.platform}
+            ),
+        }
+
+    @callback
+    def gate_catalogue(self) -> list[dict[str, Any]]:
+        """Configured power gates, resolved to device names for display."""
+        gates: dict[str, str] = self._cfg(CONF_POWER_GATES, {}) or {}
+        out: list[dict[str, Any]] = []
+        for device_id, gate_entity in sorted(gates.items()):
+            dev = self._dr.devices.get(device_id)
+            out.append(
+                {
+                    "device_id": device_id,
+                    "device_name": (dev.name_by_user or dev.name or device_id) if dev else device_id,
+                    "gate_entity": gate_entity,
+                    "device_missing": dev is None,
+                }
+            )
+        return out
 
     def _timeout_minutes_for_tier(self, tier: str) -> int:
         if tier == "slow":
@@ -392,6 +533,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
                 timeout_label=timeout_label,
                 connection_type=self._device_conn.get(device_id, "Andere"),
                 gated=gated,
+                gate_entity=gate_entity,
             )
             data[device_id] = health
 

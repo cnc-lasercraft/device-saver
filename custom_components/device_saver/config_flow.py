@@ -18,6 +18,8 @@ from .const import (
     DEFAULT_IGNORED_INTEGRATIONS,
     CONF_IGNORED_PLATFORMS,
     DEFAULT_IGNORED_PLATFORMS,
+    GATE_DOMAINS,
+    MAX_TIMEOUT_MIN,
 )
 
 
@@ -35,7 +37,7 @@ def _tag_multi(suggestions: list[str]):
 def _minutes_selector():
     return selector.NumberSelector(
         selector.NumberSelectorConfig(
-            min=1, max=10080, step=1,
+            min=1, max=MAX_TIMEOUT_MIN, step=1,
             mode=selector.NumberSelectorMode.BOX,
             unit_of_measurement="min",
         )
@@ -119,7 +121,7 @@ class DeviceSaverOptionsFlow(config_entries.OptionsFlow):
         schema = vol.Schema({
             vol.Required("device"): selector.DeviceSelector(),
             vol.Required("gate_entity"): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["switch", "input_boolean", "binary_sensor"])
+                selector.EntitySelectorConfig(domain=list(GATE_DOMAINS))
             ),
         })
         return self.async_show_form(step_id="add_gate", data_schema=schema)

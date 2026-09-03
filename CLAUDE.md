@@ -45,6 +45,44 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
   Guard am Modulanfang ist bewusst entfernt — er hätte im Doppelload-Fall `register()` verhindert.
   Details: `ha_quirks.md` → „`define()` vor `app.js` landet in der falschen Registry".
 - Manifest braucht deshalb `dependencies: [frontend, http]` und ein `config_entry_only`-`CONFIG_SCHEMA`.
+- Seit v1.2.0 liegen **zwei** Karten in `www/`, beide in `LOVELACE_CARDS` — siehe «Settings-Karte».
+
+## Settings-Karte (v1.2.0)
+- Zweite Karte `custom:device-saver-settings-card` (`www/device-saver-settings-card.js`), ebenfalls
+  gebündelt und via `LOVELACE_CARDS` in `__init__.py` selbst registriert. Konfiguriert alles, was
+  auch der Options-Flow kann — **beide schreiben dieselben `options`**, sind also austauschbar.
+  Der Options-Flow bleibt bewusst unverändert als Fallback (falls die Karte mal nicht lädt).
+- Drei WS-Commands in `__init__.py`, alle **admin-only** (`_require_admin` prüft explizit statt per
+  Decorator — so hängt nichts an der Decorator-Reihenfolge) und mit `_OPTIONS_SCHEMA` serverseitig
+  validiert:
+  - `device_saver/get_config` → Options + Geräte-Katalog + Gates + vorhandene Domains/Platforms
+  - `device_saver/set_config` → merged in `entry.options` (gleiche Semantik wie `_save()` im Flow)
+  - `device_saver/set_device` → Einzelaktion (ausschliessen / Gate setzen); Read-modify-write läuft
+    **serverseitig**, damit zwei offene Tabs sich die Liste nicht gegenseitig überschreiben
+- `coordinator.device_catalogue()` liefert auch **ausgeschlossene** Geräte (sonst liesse sich nichts
+  wieder einschliessen) und markiert sie per `status`: `ok` · `not_monitored` (würde ohnehin
+  übersprungen — ignorierte Integration oder keine Entities) · `missing` (nicht mehr in der
+  Registry). Damit fallen verwaiste Exclusion-IDs von selbst auf, statt nur beim Handabgleich mit
+  `core.device_registry`.
+- Dafür wurde `_build_cache()` aufgeteilt: `_device_entity_map()`, `_battery_devices()`,
+  `_candidate_devices()` (ohne Exclusion-Filter), `_connection_type()`. Ergebnis-äquivalent zu vorher.
+- **Speichern ist explizit** (Dirty-State + Button): jeder Write löst den Update-Listener und damit
+  einen Entry-Reload aus — Auto-Save pro Tastendruck wäre ein Reload pro Zeichen. Nach dem Schreiben
+  wartet die Karte `RELOAD_SETTLE_MS` (1.5 s), bevor sie neu liest.
+- Nebeneffekt: Beim ersten Speichern werden alle Keys nach `options` geschrieben — die historische
+  `data`-Kopie aus der Erstkonfiguration wird damit endgültig irrelevant.
+- Die Geräteliste hat für Admins ein **⋮-Zeilenmenü** (nicht überwachen / Power-Gate setzen,
+  ändern, entfernen). Nicht-Admins sehen die Spalte gar nicht; `_ws_get_devices` liefert dafür neu
+  `gate_entity` mit.
+
+## Tests
+- `tools/test_cards.js` — headless jsdom-Smoke-Test beider Karten (54 Checks: Rendering,
+  Zeilenmenü, Gate-Validierung, Dirty-State, Save-Payload, Admin-Gating).
+  `npm install jsdom && node tools/test_cards.js`. Liegt ausserhalb `custom_components/`.
+- **jsdom-Fallstrick:** dessen `querySelector("#id")` löst intern über `document.getElementById`
+  auf und prüft dann nur die Zugehörigkeit — zwei Karten mit gleichen Element-IDs im selben
+  Dokument ergeben `null`. Echte Browser suchen korrekt im Teilbaum. Im Test darum immer nur eine
+  Karte gleichzeitig einhängen (`mount()`), kein Kartenfehler.
 
 ## Entities (v1.1.0)
 - Die drei Entities hängen an einem Service-Device „Device Saver" (`entity.py` → `device_info()`).

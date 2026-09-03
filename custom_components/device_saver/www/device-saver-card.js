@@ -13,6 +13,14 @@
   // excluded), so we settle after these instead of polling forever.
   const EMPTY_RETRY_DELAYS = [2000, 4000, 8000, 15000, 30000];
 
+  // Must match GATE_DOMAINS in const.py — the backend rejects anything else.
+  const GATE_DOMAINS = ["switch", "input_boolean", "binary_sensor"];
+
+  // A row action writes options, which reloads the config entry. Re-read only
+  // once that has settled, or we'd fetch from the coordinator about to be torn
+  // down.
+  const RELOAD_SETTLE_MS = 1500;
+
   class DeviceSaverCard extends HTMLElement {
     constructor() {
       super();
@@ -26,11 +34,17 @@
       this._fetchInFlight = false;
       this._hasMatter = false;
       this._retryTimer = null;
+      this._uid = "dsc" + Math.random().toString(36).slice(2, 8);
+      this._admin = false;
+      this._menu = null;
+      this._onDocClick = null;
+      this._onKeyDown = null;
     }
 
     disconnectedCallback() {
       clearTimeout(this._retryTimer);
       this._retryTimer = null;
+      this._closeMenu();
     }
 
     setConfig(config) {
@@ -95,6 +109,7 @@
         this.innerHTML = `<ha-card header="Device Saver"><div class="card-content">Entity not found: ${this._dsEntity}</div></ha-card>`;
         return;
       }
+      this._admin = !!(this._hass.user && this._hass.user.is_admin);
       const msState0 = this._msEntity ? this._hass.states[this._msEntity] : null;
       this._lastStateSig = `${dsState.state}|${dsState.attributes.down_count ?? ""}|${dsState.attributes.gated_count ?? ""}::` +
         (msState0 ? `${msState0.state}` : "");
@@ -155,6 +170,41 @@
             .ds-errors .count { font-weight: 500; }
             .ds-errors .comment { font-size: 0.85em; color: var(--secondary-text-color, #999); font-style: italic; }
             .ds-lastseen { color: var(--secondary-text-color, #999); font-size: 0.9em; }
+            .ds-actions { width: 34px; text-align: right; padding-right: 8px !important; }
+            .ds-kebab {
+              background: none; border: none; cursor: pointer; font-size: 1.1em; line-height: 1;
+              color: var(--secondary-text-color, #999); padding: 2px 6px; border-radius: 4px;
+            }
+            .ds-kebab:hover { color: var(--primary-color, #03a9f4); background: rgba(127,127,127,0.12); }
+            .ds-menu {
+              position: fixed; z-index: 12; min-width: 230px; padding: 6px; border-radius: 10px;
+              background: var(--card-background-color, #1c1c1c);
+              border: 1px solid var(--divider-color, #333);
+              box-shadow: 0 6px 24px rgba(0,0,0,0.4); font-size: 0.9em;
+            }
+            .ds-menu .head {
+              padding: 6px 10px 8px; margin-bottom: 4px; font-size: 0.85em;
+              color: var(--secondary-text-color, #999);
+              border-bottom: 1px solid var(--divider-color, #333);
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            }
+            .ds-menu .item {
+              display: block; width: 100%; text-align: left; background: none; border: none;
+              color: var(--primary-text-color, #fff); padding: 8px 10px; border-radius: 6px;
+              cursor: pointer; font-size: 1em; font-family: inherit;
+            }
+            .ds-menu .item:hover { background: rgba(127,127,127,0.14); }
+            .ds-menu .gateform { display: flex; gap: 6px; padding: 4px 6px; }
+            .ds-menu .gateform input {
+              flex: 1 1 auto; min-width: 0; padding: 6px 8px; border-radius: 6px;
+              border: 1px solid var(--divider-color, #333);
+              background: var(--card-background-color, #1c1c1c);
+              color: var(--primary-text-color, #fff);
+              font-size: 0.95em; font-family: inherit; outline: none;
+            }
+            .ds-menu .gateform input:focus { border-color: var(--primary-color, #03a9f4); }
+            .ds-menu .gateform .item { width: auto; flex: 0 0 auto; border: 1px solid var(--divider-color, #333); }
+            .ds-menu .err { padding: 4px 10px 6px; color: #f44336; font-size: 0.85em; }
           </style>
           <div class="ds-header">
             <span class="ds-title">Device Health</span>
@@ -169,6 +219,7 @@
               <tbody id="ds-tbody"></tbody>
             </table>
           </div>
+          ${this._admin ? `<datalist id="${this._uid}-gates">${this._gateOptions()}</datalist>` : ""}
         </ha-card>
       `;
 
@@ -184,6 +235,13 @@
       this.querySelector("#ds-search").addEventListener("input", (e) => {
         this._filter = e.target.value.toLowerCase();
         this._updateTable();
+      });
+
+      this.querySelector("#ds-tbody").addEventListener("click", (e) => {
+        const btn = e.target.closest(".ds-kebab");
+        if (!btn) return;
+        e.stopPropagation();
+        this._openMenu(btn, btn.dataset.id);
       });
 
       this._updateTable();
@@ -213,6 +271,7 @@
     _updateTable() {
       const dsState = this._hass.states[this._dsEntity];
       if (!dsState) return;
+      this._closeMenu();
 
       let devices = this._mergeData();
       const total = devices.length;
@@ -250,11 +309,12 @@
         ["thread_role", "Thread"], ["battery", "Battery"], ["firmware", "Firmware"], ["errors", "Errors"],
       ] : [];
       const allCols = [...baseCols, ...matterCols];
-      const CC = allCols.length;
+      const CC = allCols.length + (this._admin ? 1 : 0);
 
       const theadEl = this.querySelector("#ds-thead");
       if (theadEl) {
-        theadEl.innerHTML = `<tr>${allCols.map(([f, l]) => this._th(f, l)).join("")}</tr>`;
+        theadEl.innerHTML = `<tr>${allCols.map(([f, l]) => this._th(f, l)).join("")}` +
+          (this._admin ? `<th class="ds-actions"></th>` : "") + `</tr>`;
       }
 
       if (this._filter) {
@@ -379,8 +439,139 @@
         html += `<td>${m ? this._errorsHtml(m.errors, m.error_comment) : "-"}</td>`;
       }
 
+      if (this._admin) {
+        html += `<td class="ds-actions"><button class="ds-kebab" data-id="${this._escHtml(d.device_id)}"
+          title="Aktionen">\u22EE</button></td>`;
+      }
+
       html += `</tr>`;
       return html;
+    }
+
+    // ------------------------------------------------------------- row menu
+
+    _gateOptions() {
+      return Object.keys(this._hass.states)
+        .filter((eid) => GATE_DOMAINS.includes(eid.split(".")[0]))
+        .sort()
+        .map((eid) => {
+          const fn = this._hass.states[eid].attributes.friendly_name || "";
+          return `<option value="${this._escHtml(eid)}" label="${this._escHtml(fn)}"></option>`;
+        })
+        .join("");
+    }
+
+    _closeMenu() {
+      if (this._onDocClick) {
+        document.removeEventListener("click", this._onDocClick, true);
+        this._onDocClick = null;
+      }
+      if (this._onKeyDown) {
+        document.removeEventListener("keydown", this._onKeyDown, true);
+        this._onKeyDown = null;
+      }
+      if (this._menu) {
+        this._menu.remove();
+        this._menu = null;
+      }
+    }
+
+    _openMenu(anchor, deviceId) {
+      this._closeMenu();
+      const dev = this._fetchedDevices.find((d) => d.device_id === deviceId);
+      if (!dev) return;
+
+      const menu = document.createElement("div");
+      menu.className = "ds-menu";
+      this._menu = menu;
+      this.appendChild(menu);
+      this._renderMenu(dev);
+
+      const rect = anchor.getBoundingClientRect();
+      menu.style.top = `${rect.bottom + 4}px`;
+      menu.style.left = `${Math.max(8, rect.right - menu.offsetWidth)}px`;
+
+      this._onDocClick = (e) => {
+        if (!menu.contains(e.target)) this._closeMenu();
+      };
+      this._onKeyDown = (e) => {
+        if (e.key === "Escape") this._closeMenu();
+      };
+      // Capture phase: some HA containers stop propagation before it bubbles up.
+      document.addEventListener("click", this._onDocClick, true);
+      document.addEventListener("keydown", this._onKeyDown, true);
+    }
+
+    _renderMenu(dev) {
+      const menu = this._menu;
+      if (!menu) return;
+      menu.innerHTML = `
+        <div class="head">${this._escHtml(dev.name)}</div>
+        <button class="item" data-act="exclude">Nicht mehr \u00FCberwachen</button>
+        <button class="item" data-act="gate">${dev.gate_entity ? "Power-Gate \u00E4ndern \u2026" : "Power-Gate setzen \u2026"}</button>
+        ${dev.gate_entity ? `<button class="item" data-act="ungate">Power-Gate entfernen</button>` : ""}
+        <div class="msg"></div>`;
+
+      menu.querySelector('[data-act="exclude"]').addEventListener("click", () =>
+        this._deviceAction(dev.device_id, { excluded: true }));
+      menu.querySelector('[data-act="gate"]').addEventListener("click", () =>
+        this._renderGateForm(dev));
+      const ungate = menu.querySelector('[data-act="ungate"]');
+      if (ungate) {
+        ungate.addEventListener("click", () =>
+          this._deviceAction(dev.device_id, { gate_entity: null }));
+      }
+    }
+
+    _renderGateForm(dev) {
+      const menu = this._menu;
+      if (!menu) return;
+      menu.innerHTML = `
+        <div class="head">${this._escHtml(dev.name)}</div>
+        <div class="gateform">
+          <input type="text" list="${this._uid}-gates" placeholder="switch.\u2026"
+                 value="${this._escHtml(dev.gate_entity || "")}">
+          <button class="item">OK</button>
+        </div>
+        <div class="msg"></div>`;
+
+      const input = menu.querySelector("input");
+      const submit = () => {
+        const value = input.value.trim();
+        if (!GATE_DOMAINS.includes(value.split(".")[0])) {
+          this._menuError(`Gate-Entity muss ${GATE_DOMAINS.join(", ")} sein.`);
+          return;
+        }
+        if (!this._hass.states[value]) {
+          this._menuError(`Entity ${value} gibt es nicht.`);
+          return;
+        }
+        this._deviceAction(dev.device_id, { gate_entity: value });
+      };
+      menu.querySelector("button.item").addEventListener("click", submit);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); submit(); }
+      });
+      input.focus();
+      input.select();
+    }
+
+    _menuError(text) {
+      const msg = this._menu && this._menu.querySelector(".msg");
+      if (msg) msg.innerHTML = `<div class="err">${this._escHtml(text)}</div>`;
+    }
+
+    async _deviceAction(deviceId, payload) {
+      try {
+        await this._hass.callWS(
+          Object.assign({ type: "device_saver/set_device", device_id: deviceId }, payload),
+        );
+        this._closeMenu();
+        clearTimeout(this._retryTimer);
+        this._retryTimer = setTimeout(() => this._fetchDevices(), RELOAD_SETTLE_MS);
+      } catch (e) {
+        this._menuError((e && (e.message || e.code)) || String(e));
+      }
     }
 
     _connectionHtml(conn) {

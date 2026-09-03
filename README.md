@@ -11,7 +11,7 @@ Most availability monitoring fails in the same two ways: it screams after a rest
 - **Power gates.** Map a device to the switch that feeds it. Gate off → the device is reported as *unpowered*, not *down*: no notification, no red count. See [Power gates](#power-gates).
 - **Startup grace.** For 5 minutes after a Home Assistant restart, no *new* devices are declared down. This is what stops the classic post-restart notification avalanche. Devices already down before the restart stay down, so nothing is silently "recovered".
 - **Connection types.** Devices are classified as Zigbee, Matter, HomeKit, WLAN, LAN, Solar or Other, so the dashboard can group an outage by transport — often the fastest way to see that it is one coordinator failing rather than nine devices.
-- **A bundled Lovelace card**, installed and registered automatically.
+- **Bundled Lovelace cards**, installed and registered automatically: a device list and a settings card that configures everything from the dashboard.
 
 ## Installation
 
@@ -32,6 +32,11 @@ Copy `custom_components/device_saver/` into your `config/custom_components/` dir
 > **Upgrading from 0.0.x?** Earlier versions required copying `device-saver-card.js` into `www/` by hand and registering it as a Lovelace resource. That resource is now redundant — delete it and the file in `www/`. The card is safe against being loaded twice, so nothing breaks if you leave it for a while.
 
 ## Configuration
+
+Everything below can be set two ways, and both write the same config entry options, so they are interchangeable:
+
+- **Settings → Devices & Services → Device Saver → Configure** — the options flow.
+- **The settings card** on a dashboard — see [The settings card](#the-settings-card).
 
 Set during initial setup, and changeable afterwards under **Configure → Settings**:
 
@@ -61,7 +66,9 @@ No "recovered" push is sent when a device moves from *down* to *gated* — it is
 
 This is what makes seasonal and scheduled hardware liveable: an air conditioner on a smart plug, a 3D printer on a shared socket, or a car dongle that sleeps with the vehicle, each simply drop out of the down count while their power is off.
 
-**Configure → Remove power gate** lists the existing mappings for removal.
+**Configure → Remove power gate** lists the existing mappings for removal. The settings card
+does both in one place, and the device list offers *Power-Gate setzen* straight from a device's
+row menu — where you already have the device in front of you instead of hunting for its ID.
 
 ## Entities
 
@@ -83,7 +90,16 @@ const { devices } = await hass.connection.sendMessagePromise({
 });
 ```
 
-Each entry has `device_id`, `name`, `tier`, `down`, `gated`, `reason`, `timeout_minutes`, `timeout`, `connection_type` and `last_ok`. This is what the bundled card uses.
+Each entry has `device_id`, `name`, `tier`, `down`, `gated`, `gate_entity`, `reason`, `timeout_minutes`, `timeout`, `connection_type` and `last_ok`. This is what the bundled card uses.
+
+Three further commands back the settings card. All are **admin-only** and validate their payload
+server-side — the card is just another client:
+
+| Command | Purpose |
+| --- | --- |
+| `device_saver/get_config` | Current options plus the device catalogue (excluded devices included, so they can be un-excluded), the configured gates, and the integration domains and entity platforms present in this installation. |
+| `device_saver/set_config` | Merge validated options into the config entry. Reloads the entry. |
+| `device_saver/set_device` | Exclude/re-include a single device or set/clear its power gate. The read-modify-write happens server-side, so two open browser tabs cannot clobber each other's list. |
 
 ## Events
 
@@ -107,7 +123,11 @@ actions:
       message: "{{ trigger.event.data.device_name }} is down"
 ```
 
-## The card
+## The cards
+
+Both ship inside the integration and register themselves — no Lovelace resource to add.
+
+### The device card
 
 Add a **Device Saver Card** from the card picker, or in YAML:
 
@@ -116,6 +136,33 @@ type: custom:device-saver-card
 ```
 
 It lists every monitored device with its state, tier, connection type and time since last contact; it is sortable and filterable, groups problems by connection type, and shows gated devices separately as *unpowered*. If [Matter Saver](https://github.com/cnc-lasercraft/matter-saver) is installed, its data is picked up as well.
+
+Administrators additionally get a **⋮ row menu** per device: stop monitoring it, or set, change and
+remove its power gate. Non-admins do not see the column at all.
+
+### The settings card
+
+```yaml
+type: custom:device-saver-settings-card
+```
+
+The whole configuration on one dashboard view: timeouts (with the value spelled out in hours and
+days as you type), the notify service, the exclusion list with a search box and *excluded first*
+ordering, the power gates including each gate's live state, and the ignore lists as chips picked
+from the domains actually present in your installation.
+
+Two details worth knowing:
+
+- **Saving is explicit.** Every write reloads the config entry to rebuild the device cache, so the
+  card collects changes and applies them on *Speichern*; *Verwerfen* drops them. The button stays
+  disabled until something actually differs.
+- **It flags dead entries.** An excluded device that no longer exists in the registry is marked
+  *verwaist*, and one that would be skipped anyway — because it belongs only to an ignored
+  integration, or has no usable entities — is marked *redundant*. Both used to be findable only by
+  hand-diffing the options against `core.device_registry`.
+
+The card is admin-only: everyone else gets a short notice instead, and the backend rejects the
+calls regardless of what the frontend shows.
 
 ## How detection works
 

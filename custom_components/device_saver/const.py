@@ -8,11 +8,16 @@ CONF_DEVICES_EXCLUDED = "devices_excluded"
 # device). Gate off => device is deliberately unpowered, not "down".
 CONF_POWER_GATES = "power_gates"
 
+# A gate must have a meaningful on/off state — a Shelly switch, a helper, or a
+# template binary sensor standing in for one.
+GATE_DOMAINS = ("switch", "input_boolean", "binary_sensor")
+
 CONF_TIMEOUT_CRIT_MIN = "timeout_critical_minutes"
 CONF_TIMEOUT_SLOW_MIN = "timeout_slow_minutes"
 
 DEFAULT_TIMEOUT_CRIT_MIN = 15       # 15 minutes
 DEFAULT_TIMEOUT_SLOW_MIN = 90    # 90 minutes
+MAX_TIMEOUT_MIN = 10080             # one week
 
 CONF_NOTIFY_SERVICE = "notify_service"
 CONF_NOTIFY_RECOVERED = "notify_recovered"
