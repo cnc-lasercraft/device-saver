@@ -157,44 +157,42 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
         which has to offer excluded devices too — otherwise nothing could ever be
         un-excluded.
         """
-        for dev in self._dr.devices.values():
+        # `devices` is a Collection of entries since HA 2026.9 — iterate it directly;
+        # the mapping surface (.values(), .get()) is deprecated.
+        for dev in self._dr.devices:
             if dev.entry_type == DeviceEntryType.SERVICE:
                 continue
-            # Skip devices that belong exclusively to ignored integrations (e.g. UniFi
-            # tracks all network clients as device_tracker — not HA-controlled devices)
-            ce_domains: set[str] = set()
-            for ce_id in dev.config_entries:
-                ce = self.hass.config_entries.async_get_entry(ce_id)
-                if ce:
-                    ce_domains.add(ce.domain)
-            if ce_domains and ce_domains <= ignored_integrations:
+            # Skip devices belonging to an ignored integration (e.g. UniFi tracks all
+            # network clients as device_tracker — not HA-controlled devices)
+            ce = self.hass.config_entries.async_get_entry(dev.config_entry_id)
+            if ce is not None and ce.domain in ignored_integrations:
                 continue
             if not device_entities.get(dev.id):
                 continue
             yield dev
 
     def _connection_type(self, dev: DeviceEntry) -> str:
-        """Determine connection type from the device's config entries."""
-        conn = "Andere"
-        for ce_id in dev.config_entries:
-            ce = self.hass.config_entries.async_get_entry(ce_id)
-            if not ce:
-                continue
-            if ce.domain == "mqtt":
-                # Only Zigbee2MQTT devices are Zigbee; generic MQTT discovery
-                # devices (e.g. WiCAN) count as WLAN, overridable by a more
-                # specific config entry on the same device
-                if any(
-                    len(idf) >= 2 and idf[0] == "mqtt"
-                    and str(idf[1]).startswith("zigbee2mqtt")
-                    for idf in dev.identifiers
-                ):
-                    return "Zigbee"
-                conn = "WLAN"
-                continue
-            if ce.domain in CONNECTION_TYPE_MAP:
-                return CONNECTION_TYPE_MAP[ce.domain]
-        return conn
+        """Determine connection type from the device's config entry.
+
+        Since HA 2026.8 a device belongs to exactly one config entry, so this is a
+        single lookup rather than a walk. That also retires the old escape hatch
+        where a more specific entry on the same device could override the generic
+        MQTT guess — a device can no longer have a second entry to be overridden by.
+        """
+        ce = self.hass.config_entries.async_get_entry(dev.config_entry_id)
+        if ce is None:
+            return "Andere"
+        if ce.domain == "mqtt":
+            # Only Zigbee2MQTT devices are Zigbee; generic MQTT discovery devices
+            # (e.g. WiCAN) count as WLAN
+            if any(
+                len(idf) >= 2 and idf[0] == "mqtt"
+                and str(idf[1]).startswith("zigbee2mqtt")
+                for idf in dev.identifiers
+            ):
+                return "Zigbee"
+            return "WLAN"
+        return CONNECTION_TYPE_MAP.get(ce.domain, "Andere")
 
     def _build_cache(self) -> None:
         """Build device/entity/tier caches. Called once at startup."""
@@ -307,7 +305,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
             )
 
         for device_id in sorted(excluded - seen):
-            dev = self._dr.devices.get(device_id)
+            dev = self._dr.async_get(device_id)
             items.append(
                 {
                     "device_id": device_id,
@@ -343,7 +341,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
         gates: dict[str, str] = self._cfg(CONF_POWER_GATES, {}) or {}
         out: list[dict[str, Any]] = []
         for device_id, gate_entity in sorted(gates.items()):
-            dev = self._dr.devices.get(device_id)
+            dev = self._dr.async_get(device_id)
             out.append(
                 {
                     "device_id": device_id,
@@ -360,7 +358,7 @@ class DeviceSaverCoordinator(DataUpdateCoordinator[dict[str, DeviceHealth]]):
         return int(self._cfg(CONF_TIMEOUT_CRIT_MIN, DEFAULT_TIMEOUT_CRIT_MIN))
 
     def _device_name(self, device_id: str) -> str:
-        dev = self._dr.devices.get(device_id)
+        dev = self._dr.async_get(device_id)
         if not dev:
             return device_id
         return dev.name_by_user or dev.name or device_id

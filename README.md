@@ -10,7 +10,7 @@ Most availability monitoring fails in the same two ways: it screams after a rest
 - **Two speed tiers.** Battery-powered devices report in slowly by nature, so they get their own, longer timeout (default 90 min). Everything else is treated as critical (default 15 min).
 - **Power gates.** Map a device to the switch that feeds it. Gate off → the device is reported as *unpowered*, not *down*: no notification, no red count. See [Power gates](#power-gates).
 - **Startup grace.** For 5 minutes after a Home Assistant restart, no *new* devices are declared down. This is what stops the classic post-restart notification avalanche. Devices already down before the restart stay down, so nothing is silently "recovered".
-- **Connection types.** Devices are classified as Zigbee, Matter, HomeKit, WLAN, LAN, Solar or Other, so the dashboard can group an outage by transport — often the fastest way to see that it is one coordinator failing rather than nine devices.
+- **Connection types.** Devices are classified as Zigbee, Matter, HomeKit, WLAN, LAN, Solar or Other, so the dashboard can group an outage by transport — often the fastest way to see that it is one coordinator failing rather than nine devices. Generic MQTT discovery devices count as WLAN; only Zigbee2MQTT ones count as Zigbee.
 - **A sidebar entry**, registered automatically. Device list and settings are usable straight after setup — no dashboard to build first.
 - **Bundled Lovelace cards**, installed and registered automatically: a device list and a settings card that configures everything from the dashboard.
 
@@ -216,7 +216,12 @@ The device, entity and tier caches are rebuilt on registry changes — a re-comm
 
 ## Requirements
 
-Home Assistant 2024.6.0 or newer.
+Home Assistant 2026.9.0 or newer.
+
+Earlier versions are not supported from 1.5.0 on. The device registry changed shape in
+2026.8 and 2026.9 — a device now belongs to a single config entry, and the registry's
+device collection is no longer a mapping — and the integration reads it directly rather
+than through a compatibility layer. 1.4.0 remains available for older installs.
 
 ## License
 

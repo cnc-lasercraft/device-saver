@@ -128,6 +128,29 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
 - Ausserdem setzt die Karte `_initialized` erst, wenn die Entity wirklich da ist. Vorher
   blieb sie nach einem Restart dauerhaft im Fehlerzustand, bis die Seite neu geladen wurde.
 
+## Device-Registry-Migration (v1.5.0, HA 2026.9)
+- **Minimum ist jetzt HA 2026.9.0** (`hacs.json`). Nötig, weil die neuen APIs nicht
+  rückwärtskompatibel sind — und zwar tückisch: Auf HA < 2026.9 war `registry.devices`
+  ein Mapping, `for dev in registry.devices` hätte dort **IDs statt Objekten** geliefert.
+- Migriert (Fristen: `config_entries` fällt 2027.8, Mapping-Zugriff 2027.9):
+  - `self._dr.devices.values()` → `for dev in self._dr.devices` (ist eine `Collection`)
+  - `self._dr.devices.get(id)` → `self._dr.async_get(id)` (3×)
+  - `dev.config_entries` (Liste) → `dev.config_entry_id` (ein Wert, seit HA 2026.8)
+- **Semantische Änderung, nicht nur Syntax:** Seit HA 2026.8 gehört ein Gerät zu genau
+  einem Config-Entry. Damit ist die alte Hintertür weg, dass ein spezifischerer Entry am
+  selben Gerät die generische MQTT-Vermutung „WLAN" überstimmt (stand so in diesem
+  Dokument seit v0.0.15). Das ist **durch HA selbst** entfallen, nicht durch unseren Code —
+  unsere Schleife lief seit 2026.8 ohnehin nur noch über einen Eintrag.
+- **Child-Devices (neu in 2026.9) sind unkritisch:** `_device_data` und
+  `_child_device_data` sind getrennte Container, `registry.devices` liefert nur
+  Hauptgeräte. Device Saver überwacht also keine Child-Devices als eigenständige Geräte.
+  In `homeassistant/helpers/device_registry.py` verifiziert, nicht aus den Notes abgeleitet.
+- Keine Log-Flut zu befürchten gewesen: `report_usage` dedupliziert über
+  `_REPORTED_INTEGRATIONS` pro Integration und Aufrufstelle.
+- **matter_saver** hat dieselbe Baustelle an genau einer Stelle
+  (`__init__.py:335`, `dev_reg.devices.values()`), **ha-herold** ist sauber (nutzt die
+  Device Registry gar nicht).
+
 ## Options-Hygiene (v1.3.1)
 - `_prune_options()` in `__init__.py` wirft beim Setup alle Options-Keys weg, die die
   Integration nicht kennt. Anlass: In dieser Instanz lagen die 7 Power-Gate-Zuordnungen
