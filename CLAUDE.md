@@ -143,6 +143,23 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
 - `add_extra_js_url` läuft in `async_setup` → eine URL-Änderung braucht einen vollen
   HA-Restart, ein Entry-Reload genügt nicht.
 
+## Panel bleibt leer: verdeckte Properties (v1.6.1)
+- **Symptom:** Panel-Seite komplett leer, sporadisch, ein Reload heilt es. `_built: false`,
+  `_hass` nicht gesetzt — obwohl das Element aufgewertet ist und die Setter am Prototyp hängen.
+- **Ursache:** `ha-panel-custom` wartet nur darauf, dass das **Modul lädt**, und erzeugt dann
+  das Element und setzt `hass`/`narrow`/`route`/`panel`. Unsere Registrierung hängt aber am
+  `load`-Event (muss sie, sonst falsche Registry — siehe «`define()` vor `app.js`»). In diesem
+  Fenster werden die Zuweisungen zu **eigenen Properties auf der Instanz**, die die Accessoren
+  nach dem Upgrade dauerhaft verdecken. Die Setter laufen nie.
+- **Fix:** `connectedCallback()` holt sie zurück (lazy property upgrade): Wert merken,
+  `delete this[prop]`, neu zuweisen → jetzt greift der Setter. Reihenfolge `panel, narrow,
+  route, hass` — `hass` zuletzt, weil es den Aufbau auslöst.
+- **Nachweis:** Am 04.09.2026 im Browser gemessen, `hasOwnProperty` für alle vier Properties
+  `true` bei vorhandenen Prototyp-Settern; Fix live angewandt → `built: true`, alle Tabs da.
+- Regressionstest in `tools/test_cards.js` («shadowed properties are rescued on upgrade»).
+- **Die Karten sind nicht betroffen:** Lovelace wartet vor dem Erzeugen auf die Definition,
+  `ha-panel-custom` nicht.
+
 ## Zigbee-Karte (v1.6.0)
 - **Für Zigbee2MQTT gibt es keinen nativen Weg** — nachgewiesen, nicht vermutet (04.09.2026):
   Z2M ist keine HA-Integration (MQTT-Discovery), HA zeichnet also keine Karte; Z2Ms eigene

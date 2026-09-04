@@ -432,6 +432,33 @@ function mount(tag) {
   console.log("\ndevice-saver-panel");
   check("registered", !!window.customElements.get("device-saver-panel"));
 
+  // Home Assistant assigns hass/route/panel before the element is defined: the
+  // values land as own properties that shadow the accessors. Without the rescue
+  // in connectedCallback the panel stays blank forever.
+  {
+    const hPre = makeHass([]);
+    Object.assign(hPre.states, HEROLD_STATES);
+    window.document.body.innerHTML = "";
+    // createElement on a name that is defined would upgrade immediately, so
+    // build the pre-upgrade situation explicitly with an unknown element.
+    const raw = window.document.createElement("device-saver-panel-preupgrade");
+    raw.panel = { url_path: "device-saver-hub" };
+    raw.route = { path: "/herold" };
+    raw.hass = hPre;
+    window.document.body.appendChild(raw);
+    // Now give it the class, exactly as a late define() would.
+    Object.setPrototypeOf(raw, window.customElements.get("device-saver-panel").prototype);
+    raw.constructor.call ? null : null;
+    // The constructor never ran, so seed what it would have set.
+    Object.assign(raw, { _tab: "devices", _wantedTab: null, _cards: {}, _mounting: {},
+                         _built: false, _narrow: false, _panelUrl: "device-saver" });
+    raw.connectedCallback();
+    await settle();
+    check("shadowed properties are rescued on upgrade", raw._built === true, String(raw._built));
+    check("rescued route still selects its tab", raw._tab === "herold", raw._tab);
+    check("rescued panel url is kept", raw._panelUrl === "device-saver-hub", raw._panelUrl);
+  }
+
   // neither companion installed
   const panel = mountPanel(makeHass([]));
   await settle();

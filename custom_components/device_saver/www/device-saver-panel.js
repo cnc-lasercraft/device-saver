@@ -200,6 +200,31 @@
       this._panelUrl = "device-saver";
     }
 
+    /*
+     * Rescue properties Home Assistant set before this element was defined.
+     *
+     * `ha-panel-custom` waits for the module to load and then creates the
+     * element and assigns hass/narrow/route/panel. Our module loads early but
+     * defers `define()` to the load event — it has to, or the definition lands
+     * in the wrong custom element registry (see register() at the bottom). In
+     * that window the assignments become plain own properties on the instance,
+     * which then shadow these accessors forever after the upgrade: the setters
+     * never run, nothing is built, and the panel is simply blank.
+     *
+     * The standard lazy-upgrade dance fixes it: take the value, delete the own
+     * property, assign again — now it reaches the setter. Order matters, hass
+     * last, because it is what triggers the build.
+     */
+    connectedCallback() {
+      for (const prop of ["panel", "narrow", "route", "hass"]) {
+        if (Object.prototype.hasOwnProperty.call(this, prop)) {
+          const value = this[prop];
+          delete this[prop];
+          this[prop] = value;
+        }
+      }
+    }
+
     set hass(hass) {
       const hadHass = !!this._hass;
       this._hass = hass;
