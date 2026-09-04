@@ -26,6 +26,24 @@
     return false;
   }
 
+  /*
+   * Home Assistant draws its own network map for these protocols. Since 2026.9
+   * Matter has one too, fed straight from the Matter Server — it knows the real
+   * transport and per-direction signal strength, which is more than any card can
+   * reconstruct from entity attributes. So link to them instead of competing.
+   * Both paths are the ones the integrations' own config dashboards use.
+   */
+  const NETWORK_MAPS = [
+    { component: "matter", label: "Matter-Netzwerkkarte", icon: "mdi:lan", path: "/config/matter/visualization" },
+    { component: "zha", label: "Zigbee-Netzwerkkarte", icon: "mdi:zigbee", path: "/config/zha/visualization" },
+  ];
+
+  /** Which of those the running installation actually has. */
+  const availableMaps = (hass) => {
+    const loaded = (hass.config && hass.config.components) || [];
+    return NETWORK_MAPS.filter((m) => loaded.includes(m.component));
+  };
+
   const hasMatterSaver = (hass) =>
     !!hass.states["sensor.matter_saver_devices"] || hasPrefix(hass, "sensor.matter_saver_");
   const hasHerold = (hass) =>
@@ -71,16 +89,22 @@
       cards: [{ type: "custom:matter-saver-log-card", entity: "sensor.matter_saver_activity_log" }],
     },
     {
-      id: "topology",
-      label: "Topology",
-      requires: hasMatterSaver,
-      cards: [{ type: "custom:matter-saver-topology-card", entity: "sensor.matter_saver_devices" }],
-    },
-    {
-      id: "mesh",
-      label: "Mesh",
-      requires: hasMatterSaver,
-      cards: [{ type: "custom:matter-saver-mesh-card", entity: "sensor.matter_saver_devices" }],
+      id: "maps",
+      label: "Netzwerkkarten",
+      requires: (hass) => availableMaps(hass).length > 0,
+      cards: (hass) => [
+        {
+          type: "grid",
+          columns: 2,
+          square: false,
+          cards: availableMaps(hass).map((m) => ({
+            type: "button",
+            name: m.label,
+            icon: m.icon,
+            tap_action: { action: "navigate", navigation_path: m.path },
+          })),
+        },
+      ],
     },
     {
       id: "herold",
@@ -364,11 +388,15 @@
       if (!this._cards[id] && !this._mounting[id]) {
         this._mounting[id] = true;
         try {
+          // A tab may compute its cards from hass — the map tab lists only the
+          // protocols this installation actually has.
+          const configs =
+            typeof spec.cards === "function" ? spec.cards(this._hass) : spec.cards;
           const container = document.createElement("div");
           // `data-pane`, not `data-tab`: the tab buttons already use that, and
           // one attribute meaning two different things makes the DOM a puzzle.
           container.dataset.pane = id;
-          for (const config of spec.cards) {
+          for (const config of configs) {
             const card = await this._createCard(config);
             if (this._hass) card.hass = this._hass;
             container.appendChild(card);

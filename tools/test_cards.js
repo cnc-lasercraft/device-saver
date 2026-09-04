@@ -62,6 +62,7 @@ const DEVICES = [
 function makeHass(calls) {
   return {
     user: { is_admin: true },
+    config: { components: [] },
     services: { notify: { mobile_app_x: {}, persistent_notification: {} } },
     states: {
       "sensor.down_devices": { state: "1", attributes: { down_count: 1, gated_count: 1 } },
@@ -456,7 +457,7 @@ function mount(tag) {
   const panelM = mountPanel(hMatter);
   await settle();
   check("matter tabs appear when matter-saver is installed",
-    tabIds(panelM).join(",") === "devices,matter,log,topology,mesh,settings",
+    tabIds(panelM).join(",") === "devices,matter,log,settings",
     tabIds(panelM).join(","));
 
   [...panelM.querySelectorAll(".dsp-tab")].find((b) => b.dataset.tab === "matter")
@@ -467,13 +468,32 @@ function mount(tag) {
     !!matterPane && matterPane.firstElementChild.dataset.type === "vertical-stack",
     matterPane && matterPane.innerHTML.slice(0, 60));
 
-  [...panelM.querySelectorAll(".dsp-tab")].find((b) => b.dataset.tab === "topology")
+  [...panelM.querySelectorAll(".dsp-tab")].find((b) => b.dataset.tab === "log")
     .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   await settle();
-  check("topology tab renders its custom card",
-    !!panelM.querySelector("matter-saver-topology-card"));
-  check("topology card got its entity",
-    panelM.querySelector("matter-saver-topology-card").config.entity === "sensor.matter_saver_devices");
+  check("log tab renders its custom card", !!panelM.querySelector("matter-saver-log-card"));
+  check("log card got its entity",
+    panelM.querySelector("matter-saver-log-card").config.entity === "sensor.matter_saver_activity_log");
+
+  // native network maps: offered only for protocols this install actually has
+  check("no map tab without matter or zha loaded", !tabIds(panelM).includes("maps"));
+
+  const hMap = makeHass([]);
+  hMap.config = { components: ["matter", "sensor"] };
+  const panelMap = mountPanel(hMap);
+  await settle();
+  check("map tab appears once a mapped protocol is loaded", tabIds(panelMap).includes("maps"));
+  [...panelMap.querySelectorAll(".dsp-tab")].find((b) => b.dataset.tab === "maps")
+    .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await settle();
+  const grid = panelMap.querySelector('[data-pane="maps"]').firstElementChild;
+  check("map tab renders a grid", grid.dataset.type === "grid", grid.dataset.type);
+
+  const hBothMaps = makeHass([]);
+  hBothMaps.config = { components: ["matter", "zha"] };
+  const panelBoth = mountPanel(hBothMaps);
+  await settle();
+  check("zha alongside matter is offered too", tabIds(panelBoth).includes("maps"));
 
   // Herold installed -> its two views appear, admin one gated
   const hHerold = makeHass([]);
@@ -498,7 +518,7 @@ function mount(tag) {
   const panelB = mountPanel(hBoth);
   await settle();
   check("both companions give the full tab set",
-    tabIds(panelB).join(",") === "devices,matter,log,topology,mesh,herold,herold-admin,settings",
+    tabIds(panelB).join(",") === "devices,matter,log,herold,herold-admin,settings",
     tabIds(panelB).join(","));
 
   // a companion that finishes loading after the panel did
@@ -518,11 +538,11 @@ function mount(tag) {
   Object.assign(hDeep.states, MATTER_STATES);
   const panelD = mount("device-saver-panel");
   panelD.panel = { url_path: "device-saver-hub" };
-  panelD.route = { path: "/mesh" };
+  panelD.route = { path: "/log" };
   panelD.hass = hDeep;
   await settle();
   check("route selects a companion tab",
-    [...panelD.querySelectorAll(".dsp-tab")].find((b) => b.classList.contains("active")).dataset.tab === "mesh");
+    [...panelD.querySelectorAll(".dsp-tab")].find((b) => b.classList.contains("active")).dataset.tab === "log");
 
   // a tab whose card never loads must not hang the panel
   const hMissing = makeHass([]);

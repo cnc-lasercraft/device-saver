@@ -137,8 +137,16 @@ installed and shows the matching views, laid out as a dashboard would:
 
 | Installed | Tabs added |
 | --- | --- |
-| [Matter Saver](https://github.com/cnc-lasercraft/matter-saver) | Matter Status (with its summary tiles), Aktivität, Topology, Mesh |
+| [Matter Saver](https://github.com/cnc-lasercraft/matter-saver) | Matter Status (with its summary tiles), Aktivität |
 | [Herold](https://github.com/cnc-lasercraft/ha-herold) | Herold, and Herold Verwaltung for administrators |
+| Matter and/or ZHA | Netzwerkkarten — links to Home Assistant's own network maps |
+
+**Network maps are Home Assistant's, not ours.** Since 2026.9 the Matter panel draws a map
+fed straight from the Matter Server: real transport per link, and signal strength per
+direction. ZHA has had one for years. Neither can be matched by a card reconstructing
+topology from entity attributes, so the panel links to them (`/config/matter/visualization`,
+`/config/zha/visualization`) rather than competing with them, and only for the protocols
+this installation actually runs.
 
 Nothing is required: a tab exists only while the integration that owns its cards does, and
 one that finishes loading after the panel is picked up on the next update. Tabs hold
@@ -218,7 +226,9 @@ The device, entity and tier caches are rebuilt on registry changes — a re-comm
 
 Home Assistant 2026.9.0 or newer.
 
-Earlier versions are not supported from 1.5.0 on. The device registry changed shape in
+Earlier versions are not supported from 1.5.0 on, and the integration refuses to set up on
+them with a message saying so — HACS does not enforce the requirement when updating an
+already-installed integration, and the failure would otherwise surface as a traceback. The device registry changed shape in
 2026.8 and 2026.9 — a device now belongs to a single config entry, and the registry's
 device collection is no longer a mapping — and the integration reads it directly rather
 than through a compatibility layer. 1.4.0 remains available for older installs.

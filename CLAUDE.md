@@ -128,6 +128,28 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
 - Ausserdem setzt die Karte `_initialized` erst, wenn die Entity wirklich da ist. Vorher
   blieb sie nach einem Restart dauerhaft im Fehlerzustand, bis die Seite neu geladen wurde.
 
+## Native Netzwerkkarten statt eigener (v1.5.1)
+- HA 2026.9 bringt unter `/config/matter/visualization` eine Matter-Netzwerkkarte, gespeist
+  direkt vom Matter Server (echter Transport je Verbindung, Signalstärke je Richtung). ZHA
+  hat unter `/config/zha/visualization` seit je eine. Beide Pfade aus
+  `…/integration-panels/{matter,zha}/*-config-dashboard.ts` verifiziert.
+- Die Panel-Tabs **Topology und Mesh (matter-saver) sind dafür entfallen** — eine Karte, die
+  Topologie aus Entity-Attributen rekonstruiert, kann dagegen nicht anstinken. Stattdessen
+  Tab «Netzwerkkarten» mit `button`-Karten (`tap_action: navigate`).
+- Erkennung über **`hass.config.components`**, nicht über Entity-Präfixe — für „ist ZHA
+  geladen?" ist das die direkte Antwort. (Für matter-saver/herold bleibt es bei den
+  Entities, weil dort die *Karten* das Kriterium sind, nicht die Integration.)
+- `TAB_SPECS[].cards` darf jetzt eine Funktion `(hass) => configs` sein; der Karten-Tab
+  listet nur die tatsächlich vorhandenen Protokolle.
+
+## Versions-Wächter (v1.5.1)
+- `async_setup_entry` prüft `(MAJOR_VERSION, MINOR_VERSION) < (2026, 9)` und wirft einen
+  `ConfigEntryError` mit Klartext. **Anlass:** Am 04.09.2026 wurde v1.5.0 installiert,
+  während HA noch auf 2026.8.3 lief — `hacs.json`'s `homeassistant`-Minimum hat das
+  **nicht verhindert** (gilt offenbar nicht als harte Sperre beim Update einer bereits
+  installierten Integration). Ergebnis war ein `AttributeError` tief im Traceback
+  (`dev.entry_type` auf einem String), statt einer verständlichen Meldung.
+
 ## Device-Registry-Migration (v1.5.0, HA 2026.9)
 - **Minimum ist jetzt HA 2026.9.0** (`hacs.json`). Nötig, weil die neuen APIs nicht
   rückwärtskompatibel sind — und zwar tückisch: Auf HA < 2026.9 war `registry.devices`

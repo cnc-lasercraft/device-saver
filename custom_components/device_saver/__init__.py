@@ -11,8 +11,9 @@ from homeassistant.components import websocket_api
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import Unauthorized
+from homeassistant.exceptions import ConfigEntryError, Unauthorized
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
@@ -43,6 +44,14 @@ from .coordinator import DeviceSaverCoordinator
 from .panel import async_setup_panel
 
 LOGGER = logging.getLogger(__name__)
+
+# The device registry APIs used here landed in 2026.9 and are not backwards
+# compatible: on older cores `registry.devices` is a mapping whose iteration
+# yields device ids, so the code would quietly work on strings instead of
+# devices. hacs.json states the requirement, but HACS does not enforce it when
+# updating an already-installed integration — so check it here and fail with a
+# sentence the user can act on rather than an AttributeError deep in a traceback.
+MIN_HA_VERSION = (2026, 9)
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -321,6 +330,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    if (MAJOR_VERSION, MINOR_VERSION) < MIN_HA_VERSION:
+        raise ConfigEntryError(
+            f"Device Saver requires Home Assistant "
+            f"{MIN_HA_VERSION[0]}.{MIN_HA_VERSION[1]} or newer, but this is "
+            f"{MAJOR_VERSION}.{MINOR_VERSION}. Update Home Assistant, or "
+            f"downgrade Device Saver to 1.4.0."
+        )
+
     _prune_options(hass, entry)
 
     coordinator = DeviceSaverCoordinator(hass, entry)
