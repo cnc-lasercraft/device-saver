@@ -128,6 +128,21 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
 - Ausserdem setzt die Karte `_initialized` erst, wenn die Entity wirklich da ist. Vorher
   blieb sie nach einem Restart dauerhaft im Fehlerzustand, bis die Seite neu geladen wurde.
 
+## Asset-Cache (v1.5.2)
+- Alle drei Frontend-Dateien werden mit `?v=<manifest-version>` ausgeliefert
+  (`assets.py` → `async_asset_url()`), sowohl die beiden Karten über `add_extra_js_url`
+  als auch das Panel über `module_url`.
+- **Anlass:** Am 04.09.2026 zeigte das Panel nach v1.4.0 und v1.5.0 weiterhin nur die
+  zwei Tabs von v1.3.0. Die Datei auf dem Server war nachweislich korrekt (per SSH
+  gegengeprüft: `herold`, `herold-admin` & Co. waren drin) — der Browser lud sie nur nie
+  neu. Cache leeren half sofort. Der Fallstrick stand in `ha_quirks.md` bereits für
+  `add_extra_js_url`; dass er für `panel_custom`'s `module_url` genauso gilt, ist dort
+  jetzt nachgetragen.
+- `assets.py` ist ein eigenes Modul, **weil `__init__.py` schon `panel.py` importiert** —
+  die Funktion dort zu definieren und aus `panel.py` zurückzuimportieren wäre ein Zyklus.
+- `add_extra_js_url` läuft in `async_setup` → eine URL-Änderung braucht einen vollen
+  HA-Restart, ein Entry-Reload genügt nicht.
+
 ## Native Netzwerkkarten statt eigener (v1.5.1)
 - HA 2026.9 bringt unter `/config/matter/visualization` eine Matter-Netzwerkkarte, gespeist
   direkt vom Matter Server (echter Transport je Verbindung, Signalstärke je Richtung). ZHA

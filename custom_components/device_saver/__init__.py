@@ -40,6 +40,7 @@ from .const import (
     DEFAULT_PANEL,
     DEFAULT_PANEL_PATH,
 )
+from .assets import async_asset_url
 from .coordinator import DeviceSaverCoordinator
 from .panel import async_setup_panel
 
@@ -314,6 +315,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     The cards ship inside the integration, so HACS installs them along with the
     rest — no manual resource entry and no separate download needed.
+
+    Each URL carries the integration version. Browsers cache these modules by URL
+    and do so even with cache_headers=False, so without it an update silently
+    keeps serving the previous card: no error, just old behaviour. The version
+    query makes every release a new URL, which breaks the cache by itself.
     """
     await hass.http.async_register_static_paths(
         [
@@ -325,7 +331,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         ]
     )
     for card in LOVELACE_CARDS:
-        add_extra_js_url(hass, f"/{DOMAIN}/{card}")
+        add_extra_js_url(hass, await async_asset_url(hass, card))
     return True
 
 

@@ -15,6 +15,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.start import async_at_started
 
+from .assets import async_asset_url
 from .const import (
     DOMAIN,
     DEVICE_NAME,
@@ -49,6 +50,10 @@ async def async_setup_panel(hass: HomeAssistant, entry: ConfigEntry) -> CALLBACK
     # because registration happens later, after HA has started.
     state: dict[str, str | None] = {"path": None}
 
+    # Same cache-busting as the cards: the panel module is fetched by URL too, so
+    # without it a browser keeps rendering the previous release's panel.
+    module_url = await async_asset_url(hass, PANEL_MODULE)
+
     async def _register(_hass: HomeAssistant) -> None:
         """Claim the path once every dashboard has registered its own panel.
 
@@ -62,7 +67,7 @@ async def async_setup_panel(hass: HomeAssistant, entry: ConfigEntry) -> CALLBACK
                 hass,
                 frontend_url_path=path,
                 webcomponent_name=PANEL_COMPONENT,
-                module_url=f"/{DOMAIN}/{PANEL_MODULE}",
+                module_url=module_url,
                 sidebar_title=DEVICE_NAME,
                 sidebar_icon=PANEL_ICON,
                 require_admin=False,

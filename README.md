@@ -222,6 +222,29 @@ That distinction matters more than it sounds. A switch that has not changed stat
 
 The device, entity and tier caches are rebuilt on registry changes — a re-commissioning, a rename or a new device — with a 5 s debounce, so a renamed entity no longer strands its device in a permanent down state.
 
+## Troubleshooting
+
+### The card or panel still looks like the old version after an update
+
+Browsers cache the bundled JavaScript by URL, and they do so even though the files are
+served without cache headers. Until 1.5.2 the URLs were the same for every release, so an
+update could leave a browser rendering the previous version — silently, with no error and
+nothing in the console. The symptom is behaviour that does not match the release notes:
+tabs that should be there are missing, a fixed bug still reproduces.
+
+From 1.5.2 on, every asset URL carries the integration version, so each release is a new
+URL and the cache expires by itself. If you are coming from an older version, the first
+update still needs one hard reload (Ctrl+Shift+R, or Cmd+Shift+R on macOS) to pick up the
+new URLs; after that it takes care of itself.
+
+Two things worth knowing if it persists:
+
+- The URLs are registered during Home Assistant startup, so a new version needs a **full
+  restart**, not just a reload of the integration.
+- The list of those URLs is embedded in the frontend page, which is itself cached. If a
+  normal reload is not enough, append a dummy query to the dashboard URL
+  (`/my-dashboard?x=1`) to force the page itself to be re-fetched.
+
 ## Requirements
 
 Home Assistant 2026.9.0 or newer.
