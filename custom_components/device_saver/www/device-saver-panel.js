@@ -50,6 +50,17 @@
     !!hass.states["sensor.herold_letzte_meldung"] || hasPrefix(hass, "sensor.herold_");
 
   /*
+   * Zigbee2MQTT has no Home Assistant network map — it is not an HA integration,
+   * its devices arrive through MQTT discovery, and its own map lives inside the
+   * add-on's web UI, which cannot be linked into or embedded (the ingress session
+   * is not transferable). The community card reads the same data over MQTT, so
+   * the map can be shown here after all. The sensor is what the card needs, and
+   * it only exists once someone has set this up deliberately.
+   */
+  const Z2M_MAP_ENTITY = "sensor.zigbee2mqtt_networkmap";
+  const hasZigbeeMap = (hass) => !!hass.states[Z2M_MAP_ENTITY];
+
+  /*
    * `requires` gates a tab on its owning integration; `admin` restricts it to
    * administrators. The Matter and Herold entries mirror the views a dashboard
    * would hold for those integrations, so the panel is a full replacement
@@ -103,6 +114,20 @@
             icon: m.icon,
             tap_action: { action: "navigate", navigation_path: m.path },
           })),
+        },
+      ],
+    },
+    {
+      id: "zigbee",
+      label: "Zigbee",
+      requires: hasZigbeeMap,
+      cards: [
+        {
+          type: "custom:zigbee2mqtt-networkmap",
+          entity: Z2M_MAP_ENTITY,
+          // A dedicated tab is a whole page; the card's own default of 400 would
+          // leave it stranded in white space.
+          height: 600,
         },
       ],
     },

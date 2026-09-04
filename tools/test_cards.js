@@ -114,7 +114,8 @@ window.dispatchEvent(new window.Event("load"));
 // the real ones behave: custom: types become their element, built-ins a node we
 // can identify.
 for (const tag of ["matter-saver-card", "matter-saver-log-card", "matter-saver-topology-card",
-                   "matter-saver-mesh-card", "herold-log-card", "herold-admin-card"]) {
+                   "matter-saver-mesh-card", "herold-log-card", "herold-admin-card",
+                   "zigbee2mqtt-networkmap"]) {
   window.eval(`customElements.define(${JSON.stringify(tag)}, class extends HTMLElement {
     setConfig(c) { this.config = c; }
     set hass(h) { this._hass = h; }
@@ -138,6 +139,9 @@ const MATTER_STATES = {
   "sensor.matter_saver_online": { state: "40", attributes: {} },
   "sensor.matter_saver_offline": { state: "2", attributes: {} },
   "sensor.matter_saver_activity_log": { state: "ok", attributes: {} },
+};
+const Z2M_STATES = {
+  "sensor.zigbee2mqtt_networkmap": { state: "2026-09-04 09:14:17", attributes: {} },
 };
 const HEROLD_STATES = {
   "sensor.herold_letzte_meldung": { state: "2026-09-03", attributes: {} },
@@ -512,6 +516,23 @@ function mount(tag) {
   check("non-admin sees herold log but not its admin view",
     tabIds(panelHU).join(",") === "devices,herold", tabIds(panelHU).join(","));
 
+  // Zigbee2MQTT map: only once the sensor the card needs exists
+  check("no zigbee tab without the networkmap sensor", !tabIds(panelM).includes("zigbee"));
+
+  const hZ = makeHass([]);
+  Object.assign(hZ.states, Z2M_STATES);
+  const panelZ = mountPanel(hZ);
+  await settle();
+  check("zigbee tab appears with the networkmap sensor", tabIds(panelZ).includes("zigbee"));
+  [...panelZ.querySelectorAll(".dsp-tab")].find((b) => b.dataset.tab === "zigbee")
+    .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await settle();
+  const z2mCard = panelZ.querySelector("zigbee2mqtt-networkmap");
+  check("zigbee tab mounts the community card", !!z2mCard);
+  check("zigbee card gets entity and height",
+    z2mCard && z2mCard.config.entity === "sensor.zigbee2mqtt_networkmap" && z2mCard.config.height === 600,
+    z2mCard && JSON.stringify(z2mCard.config));
+
   // both installed, mirroring the hand-made dashboard
   const hBoth = makeHass([]);
   Object.assign(hBoth.states, MATTER_STATES, HEROLD_STATES);
@@ -520,6 +541,15 @@ function mount(tag) {
   check("both companions give the full tab set",
     tabIds(panelB).join(",") === "devices,matter,log,herold,herold-admin,settings",
     tabIds(panelB).join(","));
+
+  const hAll = makeHass([]);
+  hAll.config = { components: ["matter", "zha"] };
+  Object.assign(hAll.states, MATTER_STATES, HEROLD_STATES, Z2M_STATES);
+  const panelAll = mountPanel(hAll);
+  await settle();
+  check("everything installed gives every tab in order",
+    tabIds(panelAll).join(",") === "devices,matter,log,maps,zigbee,herold,herold-admin,settings",
+    tabIds(panelAll).join(","));
 
   // a companion that finishes loading after the panel did
   const hLate = makeHass([]);

@@ -143,6 +143,24 @@ Kein `home-assistant.log` vorhanden — siehe `ha_quirks.md` → "HA Logs". Nutz
 - `add_extra_js_url` läuft in `async_setup` → eine URL-Änderung braucht einen vollen
   HA-Restart, ein Entry-Reload genügt nicht.
 
+## Zigbee-Karte (v1.6.0)
+- **Für Zigbee2MQTT gibt es keinen nativen Weg** — nachgewiesen, nicht vermutet (04.09.2026):
+  Z2M ist keine HA-Integration (MQTT-Discovery), HA zeichnet also keine Karte; Z2Ms eigene
+  Karte liegt hinter Ingress und ist von aussen weder verlinkbar noch einbettbar:
+  - Tiefenlink `…/<addon-slug>#/network` → Hash wird nicht in den Rahmen durchgereicht
+  - `hassio/ingress/session` per REST → 401
+  - Sitzung per `callWS({type:"supervisor/api", endpoint:"/ingress/session", method:"post"})`
+    → Token kommt, aber der Rahmen antwortet **503**, auch mit `ingress_session`-Cookie
+- Lösung: die **fremde HACS-Karte `azuwis/zigbee2mqtt-networkmap`** (334 ★, ~17 000
+  Downloads, gepflegt). Sie liest `zigbee2mqtt/bridge/response/networkmap` und stellt die
+  Anfrage selbst. **Nicht selbst nachbauen** — das wäre Doppelarbeit gegen ein aktives Projekt.
+- Nötig ist ein MQTT-Sensor; er steht in **`/homeassistant/mqqt.yaml`** (Tippfehler im
+  Dateinamen ist historisch, `configuration.yaml` bindet ihn so ein — nicht „korrigieren").
+  Danach `homeassistant.check_config`, dann `mqtt.reload`. Schreiben braucht `sudo tee`,
+  der SSH-User hat auf `/homeassistant` keine Schreibrechte.
+- Panel-Tab «Zigbee» erkennt an `sensor.zigbee2mqtt_networkmap`, `height: 600` gesetzt
+  (Kartenvorgabe 400 wirkt auf einer ganzen Seite verloren).
+
 ## Native Netzwerkkarten statt eigener (v1.5.1)
 - HA 2026.9 bringt unter `/config/matter/visualization` eine Matter-Netzwerkkarte, gespeist
   direkt vom Matter Server (echter Transport je Verbindung, Signalstärke je Richtung). ZHA

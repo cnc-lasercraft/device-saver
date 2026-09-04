@@ -140,8 +140,17 @@ installed and shows the matching views, laid out as a dashboard would:
 | [Matter Saver](https://github.com/cnc-lasercraft/matter-saver) | Matter Status (with its summary tiles), Aktivität |
 | [Herold](https://github.com/cnc-lasercraft/ha-herold) | Herold, and Herold Verwaltung for administrators |
 | Matter and/or ZHA | Netzwerkkarten — links to Home Assistant's own network maps |
+| [zigbee2mqtt-networkmap](https://github.com/azuwis/zigbee2mqtt-networkmap) | Zigbee — the Zigbee2MQTT mesh, drawn in the panel |
 
-**Network maps are Home Assistant's, not ours.** Since 2026.9 the Matter panel draws a map
+**Zigbee2MQTT is the exception that needs a card.** It is not a Home Assistant
+integration — its devices arrive through MQTT discovery — so Home Assistant draws no map
+for it, and its own map lives inside the add-on's web interface, which cannot be linked
+into or embedded from outside. The community card
+[`azuwis/zigbee2mqtt-networkmap`](https://github.com/azuwis/zigbee2mqtt-networkmap) reads
+the same data over MQTT and can be shown here. Install it through HACS and add the sensor
+it needs; the tab appears once `sensor.zigbee2mqtt_networkmap` exists.
+
+**The other network maps are Home Assistant's, not ours.** Since 2026.9 the Matter panel draws a map
 fed straight from the Matter Server: real transport per link, and signal strength per
 direction. ZHA has had one for years. Neither can be matched by a card reconstructing
 topology from entity attributes, so the panel links to them (`/config/matter/visualization`,
